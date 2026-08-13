@@ -1,16 +1,16 @@
-"""翻译卡片窗口：上半显示框选截图，下半显示译文，半透明，可拖拽，右上角 ✕ 关闭。"""
+"""翻译卡片窗口：显示「原位叠加译文」的截图（类似拍照翻译），半透明可拖拽，右上角 ✕ 关闭。"""
 from PySide6.QtCore import Qt, QRect, Signal, QEvent
-from PySide6.QtGui import QFont, QPixmap, QImage
+from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel)
 
-MIN_W = 260
+MIN_W = 200
 
 
 class TranslationMask(QWidget):
     closed = Signal(object)  # 发送自身，供管理器从列表移除
 
-    def __init__(self, rect: QRect, image: QImage, font_size: int = 13):
+    def __init__(self, rect: QRect, image: QImage):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -18,25 +18,21 @@ class TranslationMask(QWidget):
         self.setGeometry(rect)
         self._image = image
         self._drag_offset = None
-        self._build_ui(font_size)
+        self._build_ui()
         self._install_drag()
         self.set_loading()
 
-    def _build_ui(self, font_size: int):
+    def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self._panel = QWidget(self)
         self._panel.setObjectName("panel")
         self._panel.setStyleSheet("""
-            #panel { background-color: rgba(30, 32, 40, 188);
+            #panel { background-color: rgba(30, 32, 40, 200);
                      border: 1px solid rgba(255, 255, 255, 28);
                      border-radius: 10px; }
-            QLabel#src { color: #a7abb8; font-size: 11px; }
-            QLabel#shot { background-color: rgba(255, 255, 255, 8);
-                          border: 1px solid rgba(255, 255, 255, 22);
-                          border-radius: 6px; }
-            QLabel#dst { color: #ffffff; }
+            QLabel#src { color: #c3c6cf; font-size: 11px; }
             QPushButton#close_btn { background: transparent; border: none;
                                      color: #c7c9d1; font-size: 15px; }
             QPushButton#close_btn:hover { color: #ff5b5b; }
@@ -44,8 +40,8 @@ class TranslationMask(QWidget):
         outer.addWidget(self._panel)
 
         lay = QVBoxLayout(self._panel)
-        lay.setContentsMargins(10, 7, 10, 10)
-        lay.setSpacing(7)
+        lay.setContentsMargins(8, 5, 8, 8)
+        lay.setSpacing(5)
 
         # 顶部：检测语言 + 关闭按钮
         top = QHBoxLayout()
@@ -63,46 +59,35 @@ class TranslationMask(QWidget):
         top.addWidget(btn, 0, Qt.AlignTop)
         lay.addLayout(top)
 
-        # 框选截图
+        # 截图（含原位译文）
         self._shot_label = QLabel()
-        self._shot_label.setObjectName("shot")
         self._shot_label.setAlignment(Qt.AlignCenter)
         lay.addWidget(self._shot_label)
 
-        # 译文
-        self._dst_label = QLabel("")
-        self._dst_label.setObjectName("dst")
-        self._dst_label.setWordWrap(True)
-        f = QFont()
-        f.setPointSize(font_size)
-        self._dst_label.setFont(f)
-        lay.addWidget(self._dst_label)
-
     def set_loading(self):
-        self._src_label.setText("")
-        self._dst_label.setText("识别中…")
-        self._show_shot()
+        self._src_label.setText("识别中…")
+        self._show_image(self._image)
         self._adjust_size()
 
-    def set_text(self, translated: str, detected: str):
+    def set_result(self, image: QImage, detected: str):
         self._src_label.setText(f"检测到：{detected}" if detected else "")
-        self._dst_label.setText(translated)
+        self._show_image(image)
         self._adjust_size()
 
-    def _show_shot(self):
-        if self._image is None or self._image.isNull():
+    def set_error(self, msg: str):
+        self._src_label.setText(f"⚠ {msg}")
+        self._adjust_size()
+
+    def _show_image(self, image):
+        if image is None or image.isNull():
             self._shot_label.hide()
             return
-        # 原生尺寸显示，不缩放（保留截图原比例与原大小）
-        pm = QPixmap.fromImage(self._image)
+        # 原生尺寸显示，不缩放
+        pm = QPixmap.fromImage(image)
         self._shot_label.setPixmap(pm)
         self._shot_label.show()
 
     def _adjust_size(self):
-        # 卡片宽度跟随截图原生宽度，译文按此宽度换行
-        shot_w = self._shot_label.sizeHint().width()
-        if shot_w > 0:
-            self._dst_label.setMaximumWidth(max(shot_w, MIN_W))
         hint = self._panel.sizeHint()
         w = max(self.width(), MIN_W, hint.width())
         h = max(self.height(), hint.height())
@@ -110,7 +95,7 @@ class TranslationMask(QWidget):
 
     # ---------- 拖拽移动 ----------
     def _install_drag(self):
-        for w in (self, self._panel, self._src_label, self._shot_label, self._dst_label):
+        for w in (self, self._panel, self._src_label, self._shot_label):
             w.installEventFilter(self)
 
     def eventFilter(self, obj, event):
