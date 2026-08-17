@@ -9,6 +9,8 @@
 from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QImage, QPainter, QColor, QFont, QFontMetrics
 
+import math
+
 # 整体放大倍率
 SCALE = 1.4
 
@@ -42,9 +44,16 @@ def _sample_bg(image: QImage, rect: QRect, dist: int = 3) -> QColor:
 
 
 def _measure_wrapped(fm: QFontMetrics, width: int, text: str):
-    """返回文本在指定宽度内换行后的 (最大行宽, 总高度)。"""
+    """返回文本在指定宽度内换行后的 (最大行宽, 总高度)。
+
+    高度按 lineSpacing × 行数 计算：drawText 多行实际按 lineSpacing 排版，
+    比 tight boundingRect 高，用后者会导致多行译文（如中译英）溢出。
+    """
     br = fm.boundingRect(QRect(0, 0, width, 100000), Qt.TextWrapAnywhere, text)
-    return br.width(), br.height()
+    # 用四舍五入估算行数：boundingRect 每行含 1px 余量（如 25px vs lineSpacing 24px），
+    # 用 ceil 会把单行误判成两行、高度翻倍，导致文本框过大错位。round-half-up 修正。
+    n_lines = max(1, int(br.height() / fm.lineSpacing() + 0.5))
+    return br.width(), n_lines * fm.lineSpacing()
 
 
 def composite_overlay(image: QImage, lines) -> QImage:
@@ -53,7 +62,10 @@ def composite_overlay(image: QImage, lines) -> QImage:
     lines: [{'box': [(x,y),...4点], 'translated': str}]
     """
     img = image.convertToFormat(QImage.Format_ARGB32)
-    img.setDevicePixelRatio(image.devicePixelRatio())
+    # 关键：绘制阶段必须 DPR=1.0（物理坐标）。OCR 返回的包围盒是物理像素坐标，
+    # 若这里保留源图 DPR，QPainter 会按逻辑坐标绘制，文字/擦除整体偏移 DPR 倍，
+    # 导致位置错乱、越界、原文擦不干净。
+    img.setDevicePixelRatio(1.0)
 
     rects, texts = [], []
     for ln in lines:
@@ -67,12 +79,6 @@ def composite_overlay(image: QImage, lines) -> QImage:
     if not rects:
         return img
 
-    hs = sorted(r.height() for r in rects)
-    median_h = hs[len(hs) // 2]
-    base_size = max(9.0, median_h * 0.5)
-    h_pad = max(6, int(median_h * 0.20))
-    v_pad = max(6, int(median_h * 0.20))
-
     img_bounds = QRect(0, 0, img.width(), img.height())
 
     p = QPainter(img)
@@ -81,6 +87,10 @@ def composite_overlay(image: QImage, lines) -> QImage:
 
     planned = []
     for rect, text in zip(rects, texts):
+        # 按每个框自己的高度定字号和留白，适配真实界面字号不一（标题大、按钮小）
+        base_size = max(9.0, rect.height() * 0.55)
+        h_pad = max(6, int(rect.height() * 0.25))
+        v_pad = max(6, int(rect.height() * 0.25))
         draw_w = rect.width() + 2 * h_pad
         size = base_size
         font = QFont()
@@ -121,6 +131,6 @@ def composite_overlay(image: QImage, lines) -> QImage:
     if abs(SCALE - 1.0) > 0.01:
         new_w = max(1, int(img.width() * SCALE))
         new_h = max(1, int(img.height() * SCALE))
-        img = img.scaled(new_w, new_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img = img.scaled(new_w, new_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         img.setDevicePixelRatio(image.devicePixelRatio())
     return img

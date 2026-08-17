@@ -6,7 +6,10 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QSystemTrayIcon, QApplication)
 
 from . import config
+from .debuglog import log
+from .fullscreen import is_fullscreen_foreground
 from .manager import MaskManager
+from .settings import SettingsDialog
 
 
 class TranslatorWidget(QWidget):
@@ -18,6 +21,8 @@ class TranslatorWidget(QWidget):
         self._was_visible = True
         self.manager = MaskManager(self._current_target)
         self.manager.selection_finished.connect(self._restore_widget)
+        self.manager.game_translated.connect(self._on_game_translated)
+        self.manager.game_translate_failed.connect(self._on_game_translate_failed)
         self._build_ui()
         self._build_tray()
         self._move_to_corner()
@@ -64,6 +69,12 @@ class TranslatorWidget(QWidget):
         top = QHBoxLayout()
         title = QLabel("悬屏翻译")
         title.setObjectName("title")
+        settings_btn = QPushButton("⚙")
+        settings_btn.setObjectName("close")
+        settings_btn.setFixedSize(20, 20)
+        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setToolTip("设置")
+        settings_btn.clicked.connect(self._open_settings)
         close = QPushButton("✕")
         close.setObjectName("close")
         close.setFixedSize(20, 20)
@@ -72,6 +83,7 @@ class TranslatorWidget(QWidget):
         close.clicked.connect(self.hide)
         top.addWidget(title)
         top.addStretch(1)
+        top.addWidget(settings_btn)
         top.addWidget(close)
         lay.addLayout(top)
 
@@ -158,14 +170,32 @@ class TranslatorWidget(QWidget):
 
     # ---------- 行为 ----------
     def _on_select(self):
+        fs = is_fullscreen_foreground()
+        log(f"热键触发: is_fullscreen={fs}")
+        # 全屏游戏 + 设置里选了「截全屏翻译」→ 不弹窗口，结果进剪贴板
+        if fs and config.get_game_mode() == "fullscreen":
+            self.manager.translate_fullscreen()
+            return
         self._was_visible = self.isVisible()
         self.hide()
-        self.manager.start_selection()
+        if fs:
+            # 游戏内框选：先冻结游戏画面再弹覆盖层（否则游戏被顶回桌面后截到的是桌面）
+            self.manager.start_game_selection()
+        else:
+            self.manager.start_selection()
 
     def _restore_widget(self):
         if self._was_visible and not self.isVisible():
             self.show()
             self.raise_()
+
+    def _on_game_translated(self, text):
+        preview = " ".join(text.split())[:80]
+        self.tray.showMessage("翻译完成（已复制）", preview,
+                              QSystemTrayIcon.Information, 4000)
+
+    def _on_game_translate_failed(self, msg):
+        self.tray.showMessage("翻译失败", msg, QSystemTrayIcon.Warning, 3000)
 
     def _setup_hotkey(self):
         self._hotkey = None
@@ -176,6 +206,10 @@ class TranslatorWidget(QWidget):
             QApplication.instance().installNativeEventFilter(self._hotkey.filter)
         except Exception as e:  # noqa: BLE001
             print(f"[提示] 全局快捷键注册失败：{e}")
+
+    def _open_settings(self):
+        dlg = SettingsDialog(self)
+        dlg.exec()
 
     def _show_widget(self):
         self.show()

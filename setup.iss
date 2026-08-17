@@ -1,6 +1,6 @@
 ; 悬屏翻译 安装脚本（Inno Setup）
 #define MyAppName "悬屏翻译"
-#define MyAppVersion "1.4.2"
+#define MyAppVersion "1.5.4"
 #define MyAppPublisher "ScreenTranslator"
 #define MyAppExeName "ScreenTranslator.exe"
 
@@ -14,7 +14,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=installer
-OutputBaseFilename=ScreenTranslator-Setup-v1.4.2
+OutputBaseFilename=ScreenTranslator-Setup-v1.5.4
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma

@@ -48,6 +48,25 @@ def set_auto_copy(v: bool):
     _settings.setValue("auto_copy", v)
 
 
+def get_alert_enabled() -> bool:
+    """翻译完成时是否播放提示音（游戏模式反馈用）。"""
+    return bool(_settings.value("alert_enabled", True, type=bool))
+
+
+def set_alert_enabled(v: bool):
+    _settings.setValue("alert_enabled", v)
+
+
+def get_game_mode() -> str:
+    """游戏内按快捷键的行为：'select'=框选翻译（切回桌面显示结果，默认）；
+    'fullscreen'=截全屏翻译（结果进剪贴板+通知，不打断游戏）。"""
+    return str(_settings.value("game_mode", "select"))
+
+
+def set_game_mode(mode: str):
+    _settings.setValue("game_mode", mode)
+
+
 def get_font_size() -> int:
     return int(_settings.value("font_size", 13))
 
