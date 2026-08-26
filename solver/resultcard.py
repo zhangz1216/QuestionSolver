@@ -7,8 +7,7 @@
 from PySide6.QtCore import Qt, QRect, Signal, QEvent
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QLabel, QTextBrowser, QPlainTextEdit,
-                               QSplitter, QScrollArea)
+                               QPushButton, QLabel, QTextBrowser, QPlainTextEdit)
 
 MIN_W = 260
 MAX_PREVIEW_CHARS = 500  # 小卡片答案摘要字数
@@ -57,83 +56,13 @@ class EditQuestionDialog(QDialog):
         return self._edit.toPlainText().strip()
 
 
-# ---------------------------------------------------------------- 放大面板
-class ResultPanel(QDialog):
-    """放大完整面板：左侧原截图、右侧完整答案（可选中复制）。"""
-
-    def __init__(self, image: QImage, question: str, answer: str,
-                 engine_name: str, model: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("搜题结果")
-        self.setMinimumSize(860, 560)
-        self.resize(960, 620)
-        self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QTextBrowser { background: #1b1e24; color: #eee; border: 1px solid #3a3d46;
-                           border-radius: 8px; padding: 10px; font-size: 14px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
-                          border-radius: 6px; padding: 7px 16px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
-        """)
-        self._image = image
-        self._question = question
-        self._answer = answer
-
-        splitter = QSplitter(Qt.Horizontal, self)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.addWidget(splitter, 1)
-
-        # 左：截图（可滚动）
-        left = QWidget()
-        left_lay = QVBoxLayout(left)
-        left_lay.setContentsMargins(0, 0, 0, 0)
-        head = QLabel(f"题目截图（{engine_name} · {model}）")
-        left_lay.addWidget(head)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: #1b1e24; border: 1px solid #3a3d46; border-radius: 8px; }")
-        shot = QLabel()
-        shot.setAlignment(Qt.AlignCenter)
-        pm = QPixmap.fromImage(self._image) if self._image and not self._image.isNull() else QPixmap()
-        if not pm.isNull():
-            scaled = pm.scaled(520, 520, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            shot.setPixmap(scaled)
-        scroll.setWidget(shot)
-        left_lay.addWidget(scroll, 1)
-        splitter.addWidget(left)
-
-        # 右：答案（可选中复制）
-        right = QWidget()
-        right_lay = QVBoxLayout(right)
-        right_lay.setContentsMargins(8, 0, 0, 0)
-        self._browser = QTextBrowser()
-        self._browser.setMarkdown(self._answer)
-        self._browser.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
-        right_lay.addWidget(self._browser, 1)
-
-        btns = QHBoxLayout()
-        btns.addStretch(1)
-        btn_copy = QPushButton("复制全部")
-        btn_copy.clicked.connect(self._copy_all)
-        btn_close = QPushButton("关闭")
-        btn_close.clicked.connect(self.accept)
-        btns.addWidget(btn_copy)
-        btns.addWidget(btn_close)
-        right_lay.addLayout(btns)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-
-    def _copy_all(self):
-        from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setText(self._answer)
-
-
 # ---------------------------------------------------------------- 小卡片
 class ResultCard(QWidget):
-    """搜题结果小卡片：截图缩略图 + 答案摘要 + 操作按钮。"""
+    """搜题结果卡片：截图 + 答案 + 操作按钮，支持「小卡片 / 完整面板」双形态切换。
+
+    展开形态与卡片是同一个无边框窗口（可拖动），不再弹模态面板，
+    避免第二个窗口遮挡、锁死交互的问题。
+    """
 
     # 重搜请求信号（交给 manager 处理，避免卡片里直接起线程）
     resolve_requested = Signal(str, bool)   # (题目文本, 是否用 DeepSeek 深度重搜)
@@ -150,6 +79,7 @@ class ResultCard(QWidget):
         self._engine_name = ""
         self._model = ""
         self._drag_offset = None
+        self._expanded = False          # False=小卡片 / True=完整面板（同一窗口）
         self._build_ui()
         self._install_drag()
 
@@ -224,8 +154,8 @@ class ResultCard(QWidget):
         self.btn_enlarge = QPushButton("放大")
         self.btn_enlarge.setObjectName("tool")
         self.btn_enlarge.setCursor(Qt.PointingHandCursor)
-        self.btn_enlarge.setToolTip("打开完整面板（可部分选中复制）")
-        self.btn_enlarge.clicked.connect(self._open_panel)
+        self.btn_enlarge.setToolTip("展开完整面板（同一窗口切换形态，可部分选中复制）")
+        self.btn_enlarge.clicked.connect(self._toggle_panel)
         self.btn_copy = QPushButton("复制")
         self.btn_copy.setObjectName("tool")
         self.btn_copy.setCursor(Qt.PointingHandCursor)
@@ -251,6 +181,8 @@ class ResultCard(QWidget):
         self.btn_fix.setEnabled(True)  # 修改重搜任何时候都可用
 
     def _resize_to_fit(self):
+        if self._expanded:
+            return  # 展开态尺寸由 _toggle_panel 管理，防止被内容变化缩回小卡片
         self.adjustSize()
         hint = self.sizeHint()
         self.resize(max(MIN_W, hint.width()),
@@ -269,11 +201,18 @@ class ResultCard(QWidget):
         self._model = model
         self._meta_label.setText(f"{engine_name} · {model} · 已复制到剪贴板" if False else f"{engine_name} · {model}")
         self._status_label.setText("题目：")
-        self._browser.setMarkdown(answer[:MAX_PREVIEW_CHARS] +
-                                  ("\n\n…（更多见「放大」）" if len(answer) > MAX_PREVIEW_CHARS else ""))
+        self._browser.setMarkdown(self._answer if self._expanded else self._preview_text())
         self._browser.show()
         self._set_buttons_enabled(True)
         self._resize_to_fit()
+
+    def _preview_text(self) -> str:
+        """小卡片摘要：答案超过 500 字时截断并提示。"""
+        if not self._answer:
+            return ""
+        if len(self._answer) > MAX_PREVIEW_CHARS:
+            return self._answer[:MAX_PREVIEW_CHARS] + "\n\n…（点「放大」看完整内容）"
+        return self._answer
 
     def set_error(self, msg: str):
         self._meta_label.setText("")
@@ -285,10 +224,43 @@ class ResultCard(QWidget):
         from PySide6.QtGui import QGuiApplication
         QGuiApplication.clipboard().setText(self._answer or self._question)
 
-    def _open_panel(self):
-        dlg = ResultPanel(self._image, self._question, self._answer,
-                          self._engine_name, self._model)
-        dlg.exec()
+    def _toggle_panel(self):
+        """同一窗口在「小卡片 / 完整面板」两种形态间切换（无模态、可拖动）。"""
+        self._expanded = not self._expanded
+        if self._expanded:
+            # ---- 展开为完整面板 ----
+            self.btn_enlarge.setText("收起")
+            self.btn_enlarge.setToolTip("收起为小卡片")
+            if self._image and not self._image.isNull():
+                pm = QPixmap.fromImage(self._image).scaled(
+                    560, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._shot_label.setPixmap(pm)
+            self._browser.setMaximumHeight(16777215)  # 不限高，显示全文
+            if self._answer:
+                self._browser.setMarkdown(self._answer)
+            self.resize(920, 620)
+            self._clamp_to_screen()
+        else:
+            # ---- 收起为小卡片 ----
+            self.btn_enlarge.setText("放大")
+            self.btn_enlarge.setToolTip("展开完整面板（同一窗口切换形态，可部分选中复制）")
+            if self._image and not self._image.isNull():
+                pm = QPixmap.fromImage(self._image).scaled(
+                    360, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._shot_label.setPixmap(pm)
+            self._browser.setMaximumHeight(160)
+            if self._answer:
+                self._browser.setMarkdown(self._preview_text())
+            self._resize_to_fit()
+
+    def _clamp_to_screen(self):
+        """展开后若超出屏幕工作区，夹回可见范围。"""
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        geo = self.geometry()
+        x = min(max(geo.x(), screen.left()), screen.right() - geo.width() + 1)
+        y = min(max(geo.y(), screen.top()), screen.bottom() - geo.height() + 1)
+        self.move(x, y)
 
     def _ask_edit(self):
         dlg = EditQuestionDialog(self._question or "（未识别到题目文字，可直接输入）")
