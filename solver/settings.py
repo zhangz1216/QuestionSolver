@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 
 from . import config
 from .engines import FREE_PROVIDERS, probe_free_engine, EngineError
+from .engines.deepseek import verify_key as verify_deepseek_key
 
 
 class SettingsDialog(QDialog):
@@ -106,6 +107,16 @@ class SettingsDialog(QDialog):
             self.combo_ds_model.setCurrentIndex(mi)
         ds_model_row.addWidget(self.combo_ds_model, 1)
         engine_lay.addLayout(ds_model_row)
+
+        # DeepSeek Key 验证
+        ds_probe_row = QHBoxLayout()
+        self.btn_ds_probe = QPushButton("验证 DeepSeek Key")
+        self.btn_ds_probe.setObjectName("probe")
+        self.btn_ds_probe.setCursor(Qt.PointingHandCursor)
+        self.btn_ds_probe.clicked.connect(self._on_probe_ds)
+        ds_probe_row.addWidget(self.btn_ds_probe)
+        ds_probe_row.addStretch(1)
+        engine_lay.addLayout(ds_probe_row)
         lay.addWidget(engine_box)
 
         # ---------- 行为 ----------
@@ -153,7 +164,10 @@ class SettingsDialog(QDialog):
     def _on_probe(self):
         key = self.edit_free_key.text().strip()
         if not key:
-            QMessageBox.warning(self, "提示", "请先填写免费平台 API Key")
+            QMessageBox.warning(self, "提示",
+                                "请先在「免费平台 Key」填写免费平台的 Key（智谱/硅基流动注册）。\n"
+                                "注意：DeepSeek 的 Key 不通用，需在「DeepSeek Key」里填写，"
+                                "并点下面的「验证 DeepSeek Key」。")
             return
         self.btn_probe.setEnabled(False)
         self.btn_probe.setText("探测中…")
@@ -172,6 +186,28 @@ class SettingsDialog(QDialog):
         finally:
             self.btn_probe.setEnabled(True)
             self.btn_probe.setText("探测免费引擎可用性")
+
+    def _on_probe_ds(self):
+        """验证 DeepSeek Key：GET /models，不消耗 token。"""
+        key = self.edit_ds_key.text().strip()
+        if not key:
+            QMessageBox.warning(self, "提示",
+                                "请先在「DeepSeek Key」填写 platform.deepseek.com 获取的 Key。")
+            return
+        self.btn_ds_probe.setEnabled(False)
+        self.btn_ds_probe.setText("验证中…")
+        try:
+            models = verify_deepseek_key(key)
+            config.set_deepseek_key(key)
+            names = "、".join(models[:4]) if models else "（接口未返回模型列表）"
+            QMessageBox.information(self, "验证成功",
+                                    f"Key 有效！可用模型：{names}\n\n"
+                                    f"DeepSeek Key 已保存，搜题时选 DeepSeek 引擎即可使用。")
+        except EngineError as e:
+            QMessageBox.warning(self, "验证失败", str(e))
+        finally:
+            self.btn_ds_probe.setEnabled(True)
+            self.btn_ds_probe.setText("验证 DeepSeek Key")
 
     def _save(self):
         config.set_default_provider(self.combo_default.currentData())

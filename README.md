@@ -68,4 +68,4 @@ ISCC.exe setup.iss
 
 - 搜题需要联网（调用 AI 服务）
 - AI 解答仅供参考，理科公式题若 OCR 识别不准，用「改题重搜」修正
-- DeepSeek 深度思考（reasoner）模式更准但更慢，用于难题
+- DeepSeek 难题可选 deepseek-v4-pro（更强）模式，更准但更慢；日常用 v4-flash 最便宜

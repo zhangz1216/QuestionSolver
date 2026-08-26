@@ -1,6 +1,8 @@
 """悬浮挂件：置顶、可拖拽、含「框选搜题」按钮与引擎选择。"""
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QIcon, QAction, QGuiApplication
+import math
+from PySide6.QtCore import Qt, QRectF, QPointF
+from PySide6.QtGui import (QPixmap, QPainter, QColor, QFont, QIcon, QAction,
+                           QPen, QGuiApplication)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QLabel, QComboBox, QCheckBox, QMenu,
                                QSystemTrayIcon, QApplication)
@@ -74,23 +76,11 @@ class SolverWidget(QWidget):
         top = QHBoxLayout()
         title = QLabel("悬屏搜题")
         title.setObjectName("title")
-        bank_btn = QPushButton("📚")
-        bank_btn.setObjectName("close")
-        bank_btn.setFixedSize(20, 20)
-        bank_btn.setCursor(Qt.PointingHandCursor)
-        bank_btn.setToolTip("题库管理（导入资料供 AI 学习）")
+        bank_btn = self._icon_button(self._book_icon, "题库管理（导入资料供 AI 学习）")
         bank_btn.clicked.connect(self._open_question_bank)
-        history_btn = QPushButton("🕘")
-        history_btn.setObjectName("close")
-        history_btn.setFixedSize(20, 20)
-        history_btn.setCursor(Qt.PointingHandCursor)
-        history_btn.setToolTip("历史收藏夹")
+        history_btn = self._icon_button(self._clock_icon, "历史收藏夹")
         history_btn.clicked.connect(self._open_history)
-        settings_btn = QPushButton("⚙")
-        settings_btn.setObjectName("close")
-        settings_btn.setFixedSize(20, 20)
-        settings_btn.setCursor(Qt.PointingHandCursor)
-        settings_btn.setToolTip("设置（API Key、模型等）")
+        settings_btn = self._icon_button(self._gear_icon, "设置（API Key、模型等）")
         settings_btn.clicked.connect(self._open_settings)
         close = QPushButton("✕")
         close.setObjectName("close")
@@ -170,6 +160,55 @@ class SolverWidget(QWidget):
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
+
+    # ---------- 简约线条图标（自己画，无 emoji） ----------
+    def _icon_button(self, draw_fn, tooltip: str) -> QPushButton:
+        """画一个 16px 简约线条小图标按钮（20x20 热区）。"""
+        pm = QPixmap(16, 16)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor("#c3c6cd"))
+        pen.setWidthF(1.5)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        draw_fn(p)
+        p.end()
+        btn = QPushButton()
+        btn.setObjectName("close")
+        btn.setIcon(QIcon(pm))
+        btn.setIconSize(pm.size())
+        btn.setFixedSize(20, 20)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        return btn
+
+    def _book_icon(self, p: QPainter):
+        """摊开的书。"""
+        p.drawRoundedRect(QRectF(2, 3.5, 6, 9), 1, 1)   # 左页
+        p.drawRoundedRect(QRectF(8, 3.5, 6, 9), 1, 1)   # 右页
+        p.drawLine(QPointF(8, 3.5), QPointF(8, 12.5))   # 书脊
+
+    def _clock_icon(self, p: QPainter):
+        """时钟。"""
+        p.drawEllipse(QRectF(3, 3, 10, 10))
+        p.drawLine(QPointF(8, 6.5), QPointF(8, 9.5))    # 短针
+        p.drawLine(QPointF(8, 9.5), QPointF(10.5, 9.5))  # 长针
+
+    def _gear_icon(self, p: QPainter):
+        """齿轮：外圈 + 中心孔 + 8 齿。"""
+        cx, cy, r = 8.0, 8.0, 4.2
+        p.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+        p.drawEllipse(QRectF(cx - 1.2, cy - 1.2, 2.4, 2.4))
+        for i in range(8):
+            ang = math.pi * 2 * i / 8
+            x1 = cx + (r - 0.8) * math.cos(ang)
+            y1 = cy + (r - 0.8) * math.sin(ang)
+            x2 = cx + (r + 1.8) * math.cos(ang)
+            y2 = cy + (r + 1.8) * math.sin(ang)
+            p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
     def _make_icon(self) -> QIcon:
         pm = QPixmap(64, 64)

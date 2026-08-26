@@ -6,10 +6,11 @@ _settings = QSettings("QuestionSolver", "QuestionSolver")
 # 默认引擎：'free'=免费引擎（默认，省钱）/ 'deepseek'=DeepSeek（付费）
 DEFAULT_PROVIDER = "free"
 
-# DeepSeek 模型
+# DeepSeek 模型（2026-08 官方 V4 系列；按量付费，flash 最便宜）
 DEEPSEEK_MODELS = [
-    ("deepseek-chat（快，日常够用）", "deepseek-chat"),
-    ("deepseek-reasoner（深度思考，难题更准）", "deepseek-reasoner"),
+    ("deepseek-v4-flash（快，日常够用，最便宜）", "deepseek-v4-flash"),
+    ("deepseek-v4-pro（更强，难题深度思考）", "deepseek-v4-pro"),
+    ("deepseek-v4-flash-vision-exp（视觉实验版）", "deepseek-v4-flash-vision-exp"),
 ]
 
 # 免费平台（显示名 -> provider 标识）
