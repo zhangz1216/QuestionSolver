@@ -38,6 +38,10 @@ class EditQuestionDialog(QDialog):
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(8)
 
+        # 置顶：卡片本身是 WindowStaysOnTopHint 窗口，对话框必须显式置顶，
+        # 否则会被卡片压到下面（模态下看不见=卡死）
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+
         lay.addWidget(QLabel("① 题目文本（OCR 识别可能有错，可直接修改）："))
         self._edit = QPlainTextEdit(question)
         self._edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -92,6 +96,11 @@ class ModelSelectDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(10)
+
+        # 置顶：卡片本身是 WindowStaysOnTopHint 窗口，对话框必须显式置顶，
+        # 否则会被卡片压到下面（模态下看不见=卡死）
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+
         lay.addWidget(QLabel("选择模型后用该模型重新搜这道题："))
 
         from . import config
@@ -235,7 +244,7 @@ class ResultCard(QWidget):
         self._browser.hide()
         cl.addWidget(self._browser)
 
-        cl.addLayout(self._make_btns_row(include_copy=True))
+        cl.addLayout(self._make_btns_row())
         lay.addWidget(self._compact)
 
         # ---- 展开容器（完整面板形态：左右分栏） ----
@@ -275,7 +284,7 @@ class ResultCard(QWidget):
         self._exp_browser.setObjectName("full")
         self._exp_browser.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         rl.addWidget(self._exp_browser, 1)
-        rl.addLayout(self._make_btns_row(include_copy=False))
+        rl.addLayout(self._make_btns_row())
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
@@ -284,17 +293,10 @@ class ResultCard(QWidget):
 
         self._set_buttons_enabled(False)
 
-    def _make_btns_row(self, include_copy: bool):
+    def _make_btns_row(self):
         """构建一行操作按钮，登记到统一启用/禁用管理。"""
         row = QHBoxLayout()
         row.setSpacing(6)
-        if include_copy:
-            btn_copy = QPushButton("复制")
-            btn_copy.setObjectName("tool")
-            btn_copy.setCursor(Qt.PointingHandCursor)
-            btn_copy.clicked.connect(self._copy_all)
-            row.addWidget(btn_copy)
-            self._all_buttons.append(btn_copy)
 
         btn_cond = QPushButton("加条件重搜")
         btn_cond.setObjectName("tool")
@@ -364,13 +366,10 @@ class ResultCard(QWidget):
         return self._answer
 
     # ---------- 动作 ----------
-    def _copy_all(self):
-        from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setText(self._answer or self._question)
-
     def _ask_condition(self):
         """改题目 / 附加要求（如「改用 Python 写」）后重搜。"""
-        dlg = EditQuestionDialog(self._question or "（未识别到题目文字，可直接输入）")
+        dlg = EditQuestionDialog(self._question or "（未识别到题目文字，可直接输入）",
+                                 parent=self)
         if dlg.exec() == QDialog.Accepted:
             q = dlg.question_text()
             cond = dlg.condition_text()
@@ -382,7 +381,8 @@ class ResultCard(QWidget):
     def _choose_model(self):
         """弹窗选择模型，用所选模型重搜。"""
         from . import config
-        dlg = ModelSelectDialog(current_model=self._model or config.get_deepseek_model())
+        dlg = ModelSelectDialog(current_model=self._model or config.get_deepseek_model(),
+                                parent=self)
         if dlg.exec() == QDialog.Accepted:
             model = dlg.selected_model()
             if model:
