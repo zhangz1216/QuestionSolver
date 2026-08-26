@@ -1,120 +1,71 @@
-# 悬屏翻译（ScreenTranslator）
+# 悬屏搜题
 
-一个 Windows 桌面小工具：**框选屏幕上的任意区域，自动识别里面的外语文字并翻译，弹出一张半透明卡片——上半显示你框选的截图，下半显示译文**。
+框选屏幕上的任意题目，AI 自动解答（答案 + 完整解题步骤）。支持把教材/试卷/题库导入软件，让 AI 结合资料作答。
 
-适合翻译那些不能复制粘贴的场景：软件弹窗、通知、游戏界面、图片里的文字等。
+基于「悬屏翻译」框架改造：保留了悬浮挂件、框选、OCR 识别，把翻译引擎替换为 AI 搜题引擎。
 
 ## 功能
 
-- 置顶悬浮挂件：可拖到屏幕任意位置（含屏幕边缘），也可最小化到托盘
-- 框选翻译：点挂件上的「框选翻译」按钮（或按全局快捷键 `Ctrl+Shift+T`），左键拖拽画框即翻译
-- 译文原位叠加：译文直接覆盖在截图对应文字位置（整体放大 1.4× 更清晰），同时自动复制到剪贴板
-- 自动识别语言：英语 / 日语 / 韩语 / 俄语 等，无需手动选源语言
-- 目标语言可选：默认中文，也可选英语、日语、韩语、俄语等 14 种
-- 游戏内翻译：全屏游戏里按快捷键同样可以框选翻译（画面自动冻结，切回桌面显示截图+译文），也可切换「截全屏免打扰」模式
-- 设置界面：提示音开关、游戏内快捷键行为、自动复制等可配置
-- 多卡片并存：可同时翻译多处，每张卡片右上角有关闭按钮（防误触）
+- 全局快捷键（Ctrl+Shift+T）或挂件按钮，框选任意区域的题目
+- 自动 OCR 识别题目文字 → AI 解答，返回答案 + 解题步骤 + 知识点提示
+- 双引擎省钱策略：
+  - 免费引擎（默认）：智谱 GLM-4-Flash 或硅基流动，简单题 0 成本
+  - DeepSeek：更准，带题库学习或点「深度重搜」时使用（按量付费，本身很便宜）
+- 题库管理：导入 PDF / Word / TXT / 图片（扫描版 PDF 自动转图片识别），AI 搜题时自动检索最相关的资料片段（纯本地计算，不花钱）；也可指定只看某一份资料
+- 结果小卡片 + 一键放大完整面板，文字可部分选中复制
+- 「识别不准？改题重搜」：OCR 把公式识别错时，直接修改题目文本重新搜
+- 历史收藏夹：自动保存搜题记录（含截图），可翻看、删除
+- 全屏应用内框选（游戏/全屏网课）：可切回桌面显示结果，或选择截全屏模式不打断
 
-## 效果图
-
-![程序主界面](screenshots/程序主界面.png)
-
-*悬浮挂件主界面：框选翻译按钮 + 目标语言选择 + 设置入口*
-
-![程序设置页面](screenshots/程序设置页面.png)
-
-*设置页面：提示音开关、游戏内快捷键行为、自动复制*
-
-![正常悬屏框选翻译前](screenshots/正常悬屏框选翻译前.png)
-
-*桌面框选：左键拖拽选中要翻译的区域*
-
-![正常悬屏框线翻译后](screenshots/正常悬屏框线翻译后.png)
-
-*桌面框选：译文原位覆盖在截图对应文字位置*
-
-![游戏内框选截图翻译前](screenshots/游戏内框选截图翻译前.png)
-
-*游戏内框选：冻结游戏画面后拖拽选中区域*
-
-![游戏内框选截图翻译后](screenshots/游戏内框选截图翻译后.png)
-
-*游戏内框选：切回桌面显示游戏区域截图 + 原位译文*
-
-## 工作原理
-
-```
-框选区域 → 截图 → OCR 识别文字 → 自动识别语言 → 翻译 → 半透明卡片（截图 + 译文）
-```
-
-## 技术栈
-
-| 模块 | 方案 |
-|---|---|
-| UI | Python + PySide6（Qt6） |
-| 截图 | QScreen.grabWindow（支持高 DPI、多显示器） |
-| OCR | RapidOCR（离线内嵌，无需联网、无需装语言包） |
-| 翻译 | 有道 demo → 腾讯 transmart → MyMemory 三路免费回退（无需 API Key，国内可访问，自动识别语言） |
-| 打包 | PyInstaller → Inno Setup 安装程序 |
-
-> 说明：Google 翻译免费接口在国内不可达，故采用上述三个国内可访问的免费接口自动回退。
-
-## 快速开始
+## 快速开始（开发运行）
 
 ```bash
 # 1. 创建虚拟环境并安装依赖
-uv venv .venv --python 3.11
-uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+uv venv .venv
+uv pip install --python ./.venv/Scripts/python.exe -r requirements.txt
 
 # 2. 运行
-.venv/Scripts/python.exe app.py
+./.venv/Scripts/python.exe app.py
+```
+
+首次使用：点挂件上的 ⚙ 打开设置，填入 API Key：
+
+| 引擎 | 获取方式 | 成本 |
+|---|---|---|
+| 免费引擎 | 智谱开放平台 open.bigmodel.cn 或硅基流动 cloud.siliconflow.cn 免费注册 | 0 元 |
+| DeepSeek | platform.deepseek.com 充值 | 按量，极便宜 |
+
+设置里点「探测免费引擎可用性」可自动选择可用的免费平台。
+
+## 测试引擎连通性（不用开界面）
+
+```bash
+./.venv/Scripts/python.exe test_engine.py
+# 或指定参数：
+./.venv/Scripts/python.exe test_engine.py --provider deepseek --key sk-xxxx
 ```
 
 ## 打包
 
 ```bash
-# 生成应用图标（首次）
-.venv/Scripts/python.exe gen_icon.py
+# PyInstaller 生成 onedir
+./.venv/Scripts/pyinstaller.exe app.spec
 
-# 打包成 exe（onedir，输出到 dist/ScreenTranslator/）
-.venv/Scripts/python.exe -m PyInstaller app.spec --noconfirm
-
-# 生成安装程序（需安装 Inno Setup 6）
-ISCC.exe setup.iss   # 输出到 installer/
+# Inno Setup 打安装包（安装 Inno Setup 6 后）
+ISCC.exe setup.iss
 ```
 
-## 测试
+## 数据存储
 
-```bash
-.venv/Scripts/python.exe test_translate.py   # 翻译接口（四语识别）
-.venv/Scripts/python.exe test_ocr.py         # OCR 识别
-.venv/Scripts/python.exe test_capture.py     # 屏幕截图 + OCR
-.venv/Scripts/python.exe test_integration.py # 遮罩 + 后台线程 + 全链路
-```
+- 配置（API Key、引擎选择）：注册表 `HKCU\Software\QuestionSolver`
+- 题库与历史记录：`%LOCALAPPDATA%\QuestionSolver\data.db`（SQLite）
+- 历史截图：`%LOCALAPPDATA%\QuestionSolver\history\`
+- 调试日志：`%LOCALAPPDATA%\QuestionSolver\debug.log`
 
-## 目录结构
+题目和题库文本仅发送给你配置的 AI 服务（DeepSeek/免费平台），无其他上传。
 
-```
-TranslatorWidget/
-├── app.py                 # 程序入口
-├── translator/
-│   ├── config.py          # 配置 + 语言定义
-│   ├── translate.py       # 翻译（三路免费回退 + 自动识别）
-│   ├── ocr.py             # OCR 封装
-│   ├── widget.py          # 悬浮挂件
-│   ├── selector.py        # 框选覆盖层
-│   ├── mask.py            # 截图 + 译文卡片
-│   ├── manager.py         # 流程协调 + 后台线程
-│   └── hotkey.py          # 全局快捷键
-├── app.spec               # PyInstaller 配置
-├── setup.iss              # Inno Setup 安装脚本
-├── gen_icon.py            # 图标生成脚本
-├── icon.ico               # 应用图标
-├── test_*.py              # 测试脚本
-└── requirements.txt
-```
+## 注意事项
 
-## 说明
-
-- 翻译需要联网（免费接口，偶尔可能限流，已做多路回退 + 重试）
-- OCR 离线：英语/中文最稳，日/韩/俄为「够用」级，后续可优化
+- 搜题需要联网（调用 AI 服务）
+- AI 解答仅供参考，理科公式题若 OCR 识别不准，用「改题重搜」修正
+- DeepSeek 深度思考（reasoner）模式更准但更慢，用于难题

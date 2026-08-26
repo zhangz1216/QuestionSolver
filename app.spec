@@ -11,6 +11,13 @@ for pkg in ("rapidocr_onnxruntime", "onnxruntime"):
     binaries += b
     hiddenimports += h
 
+# 题库解析依赖：pymupdf（PDF）、docx（Word）、jieba（分词词库）
+for pkg in ("pymupdf", "docx", "jieba"):
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hiddenimports += h
+
 a = Analysis(
     ["app.py"],
     pathex=[],
@@ -33,7 +40,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ScreenTranslator",
+    name="QuestionSolver",
     icon="icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
@@ -54,5 +61,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="ScreenTranslator",
+    name="QuestionSolver",
 )

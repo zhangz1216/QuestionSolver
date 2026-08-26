@@ -59,13 +59,13 @@ class SolveWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, image: QImage, *, provider: str, deep: bool = False,
-                 question_override: str = "", context_chunks=None):
+                 question_override: str = "", use_questionbank: bool = False):
         super().__init__()
         self._image = image
         self._provider = provider          # "free" / "deepseek"
         self._deep = deep                  # True -> deepseek-reasoner
         self._question_override = question_override
-        self._context_chunks = context_chunks
+        self._use_questionbank = use_questionbank
 
     def run(self):
         try:
@@ -78,18 +78,29 @@ class SolveWorker(QThread):
                     self.failed.emit("未识别到题目文字，请重试或框选更大范围")
                     return
 
-            # 2. 组装引擎参数（读最新配置）
+            # 2. 参考题库：检索最相关的资料块（纯本地）
+            context_chunks = None
+            if self._use_questionbank:
+                from . import questionbank as qb
+                ref_id = config.get_reference_id()
+                bank_ids = [ref_id] if ref_id > 0 else None
+                hits = qb.retrieve(question, bank_ids=bank_ids, top_k=3)
+                if hits:
+                    context_chunks = [f"[{h['source_name']}]\n{h['text']}" for h in hits]
+                    log(f"题库检索到 {len(hits)} 段参考：{[h['source_name'] for h in hits]}")
+
+            # 3. 组装引擎参数（读最新配置）
             if self._provider == "deepseek":
                 api_key = config.get_deepseek_key()
                 model = "deepseek-reasoner" if self._deep else config.get_deepseek_model()
                 result = engines.solve(question, provider="deepseek", api_key=api_key,
-                                       model=model, context_chunks=self._context_chunks)
+                                       model=model, context_chunks=context_chunks)
             else:
                 api_key = config.get_free_key()
                 result = engines.solve(question, provider="free", api_key=api_key,
                                        free_provider=config.get_free_provider(),
                                        model=config.get_free_model(),
-                                       context_chunks=self._context_chunks)
+                                       context_chunks=context_chunks)
             self.done.emit(question, result.text, result.engine_name, result.model, result.elapsed)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
@@ -172,14 +183,10 @@ class SolverManager(QObject):
         # 深度重搜固定走 DeepSeek
         if deep:
             provider = "deepseek"
-        context_chunks = None
-        if params.get("use_questionbank"):
-            # Phase 3：题库检索接入点，先留空
-            context_chunks = []
         card.set_solving("DeepSeek" if provider == "deepseek" else "免费引擎")
         worker = SolveWorker(image, provider=provider, deep=deep,
                              question_override=question_override,
-                             context_chunks=context_chunks)
+                             use_questionbank=params.get("use_questionbank", False))
         worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
         worker.failed.connect(lambda msg, c=card: c.set_error(msg))
         worker.finished.connect(lambda w=worker: self._drop_worker(w))
@@ -199,6 +206,12 @@ class SolverManager(QObject):
     def _on_done(self, card, question, answer, engine_name, model, elapsed):
         if config.get_auto_copy():
             QGuiApplication.clipboard().setText(answer)
+        if config.get_save_history():
+            try:
+                from . import history
+                history.add_record(question, answer, engine_name, model, card._image)
+            except Exception as e:  # noqa: BLE001
+                log(f"历史保存失败: {e}")
         card.set_result(question, answer, engine_name, model)
         log(f"搜题完成({engine_name}/{model}, {elapsed:.1f}s): {question[:40]}")
         _play_alert()

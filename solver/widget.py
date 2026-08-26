@@ -74,6 +74,18 @@ class SolverWidget(QWidget):
         top = QHBoxLayout()
         title = QLabel("悬屏搜题")
         title.setObjectName("title")
+        bank_btn = QPushButton("📚")
+        bank_btn.setObjectName("close")
+        bank_btn.setFixedSize(20, 20)
+        bank_btn.setCursor(Qt.PointingHandCursor)
+        bank_btn.setToolTip("题库管理（导入资料供 AI 学习）")
+        bank_btn.clicked.connect(self._open_question_bank)
+        history_btn = QPushButton("🕘")
+        history_btn.setObjectName("close")
+        history_btn.setFixedSize(20, 20)
+        history_btn.setCursor(Qt.PointingHandCursor)
+        history_btn.setToolTip("历史收藏夹")
+        history_btn.clicked.connect(self._open_history)
         settings_btn = QPushButton("⚙")
         settings_btn.setObjectName("close")
         settings_btn.setFixedSize(20, 20)
@@ -88,6 +100,8 @@ class SolverWidget(QWidget):
         close.clicked.connect(self.hide)
         top.addWidget(title)
         top.addStretch(1)
+        top.addWidget(bank_btn)
+        top.addWidget(history_btn)
         top.addWidget(settings_btn)
         top.addWidget(close)
         lay.addLayout(top)
@@ -143,9 +157,13 @@ class SolverWidget(QWidget):
         act_select.triggered.connect(self._on_select)
         act_clear = QAction("清除所有结果卡片", self)
         act_clear.triggered.connect(self.manager.clear_all)
+        act_history = QAction("历史收藏夹", self)
+        act_history.triggered.connect(self._open_history)
+        act_bank = QAction("题库管理", self)
+        act_bank.triggered.connect(self._open_question_bank)
         act_quit = QAction("退出", self)
         act_quit.triggered.connect(self._quit)
-        for a in (act_show, act_select, act_clear):
+        for a in (act_show, act_select, act_history, act_bank, act_clear):
             menu.addAction(a)
         menu.addSeparator()
         menu.addAction(act_quit)
@@ -217,6 +235,16 @@ class SolverWidget(QWidget):
 
     def _open_settings(self):
         dlg = SettingsDialog(self)
+        dlg.exec()
+
+    def _open_question_bank(self):
+        from .questionbank_dialog import QuestionBankDialog
+        dlg = QuestionBankDialog(self)
+        dlg.exec()
+
+    def _open_history(self):
+        from .history_dialog import HistoryDialog
+        dlg = HistoryDialog(self)
         dlg.exec()
 
     def _show_widget(self):

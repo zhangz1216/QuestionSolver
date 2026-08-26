@@ -101,3 +101,12 @@ def get_game_mode() -> str:
 
 def set_game_mode(mode: str):
     _settings.setValue("game_mode", mode)
+
+
+def get_reference_id() -> int:
+    """手动指定的参考资料 id；0 表示自动检索全部题库。"""
+    return int(_settings.value("reference_id", 0))
+
+
+def set_reference_id(v: int):
+    _settings.setValue("reference_id", int(v))

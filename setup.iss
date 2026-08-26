@@ -1,20 +1,20 @@
-; 悬屏翻译 安装脚本（Inno Setup）
-#define MyAppName "悬屏翻译"
-#define MyAppVersion "1.5.4"
-#define MyAppPublisher "ScreenTranslator"
-#define MyAppExeName "ScreenTranslator.exe"
+; 悬屏搜题 安装脚本（Inno Setup）
+#define MyAppName "悬屏搜题"
+#define MyAppVersion "0.1.0"
+#define MyAppPublisher "QuestionSolver"
+#define MyAppExeName "QuestionSolver.exe"
 
 [Setup]
-AppId={{D8A1F0B2-3C4E-4F5A-8B6C-1D2E3F4A5B6C}
+AppId={{7E3B9C4D-5F6A-4B7C-9D8E-0F1A2B3C4D5E}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\Programs\ScreenTranslator
+DefaultDirName={localappdata}\Programs\QuestionSolver
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=installer
-OutputBaseFilename=ScreenTranslator-Setup-v1.5.4
+OutputBaseFilename=QuestionSolver-Setup-v0.1.0
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
@@ -31,7 +31,7 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标："; Flags: checkedonce
 
 [Files]
-Source: "dist\ScreenTranslator\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\QuestionSolver\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
