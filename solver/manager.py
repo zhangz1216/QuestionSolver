@@ -63,7 +63,7 @@ class SolveWorker(QThread):
         super().__init__()
         self._image = image
         self._provider = provider          # "free" / "deepseek"
-        self._deep = deep                  # True -> deepseek-reasoner
+        self._deep = deep                  # True -> 深度重搜（DEEP_MODEL）
         self._question_override = question_override
         self._use_questionbank = use_questionbank
 
