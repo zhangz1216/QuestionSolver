@@ -16,3 +16,4 @@ installer/
 .vscode/
 *.swp
 .DS_Store
+.venv/

@@ -1,4 +1,4 @@
-"""悬浮挂件：置顶、可拖拽、含「框选翻译」按钮与语言设置。"""
+"""悬浮挂件：置顶、可拖拽、含「框选搜题」按钮与引擎选择。"""
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QIcon, QAction, QGuiApplication
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -8,29 +8,34 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from . import config
 from .debuglog import log
 from .fullscreen import is_fullscreen_foreground
-from .manager import MaskManager
+from .manager import SolverManager
 from .settings import SettingsDialog
 
 
-class TranslatorWidget(QWidget):
+class SolverWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_offset = None
         self._was_visible = True
-        self.manager = MaskManager(self._current_target)
+        self.manager = SolverManager(self._current_params)
         self.manager.selection_finished.connect(self._restore_widget)
-        self.manager.game_translated.connect(self._on_game_translated)
-        self.manager.game_translate_failed.connect(self._on_game_translate_failed)
+        self.manager.game_solved.connect(self._on_game_solved)
+        self.manager.game_solve_failed.connect(self._on_game_solve_failed)
         self._build_ui()
         self._build_tray()
         self._move_to_corner()
         self._setup_hotkey()
 
-    # ---------- 目标语言 ----------
-    def _current_target(self) -> str:
-        return self.combo_target.currentData()
+    # ---------- 搜题参数（供 manager 每次框选时读取） ----------
+    def _current_params(self) -> dict:
+        return {
+            "provider": self.combo_engine.currentData(),
+            "deep": False,
+            "use_questionbank": self.chk_bank.isChecked(),
+            "questionbank_name": None,
+        }
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -67,13 +72,13 @@ class TranslatorWidget(QWidget):
 
         # 标题行
         top = QHBoxLayout()
-        title = QLabel("悬屏翻译")
+        title = QLabel("悬屏搜题")
         title.setObjectName("title")
         settings_btn = QPushButton("⚙")
         settings_btn.setObjectName("close")
         settings_btn.setFixedSize(20, 20)
         settings_btn.setCursor(Qt.PointingHandCursor)
-        settings_btn.setToolTip("设置")
+        settings_btn.setToolTip("设置（API Key、模型等）")
         settings_btn.clicked.connect(self._open_settings)
         close = QPushButton("✕")
         close.setObjectName("close")
@@ -88,31 +93,36 @@ class TranslatorWidget(QWidget):
         lay.addLayout(top)
 
         # 框选按钮
-        self.btn_select = QPushButton("框选翻译")
+        self.btn_select = QPushButton("框选搜题")
         self.btn_select.setObjectName("select")
         self.btn_select.setCursor(Qt.PointingHandCursor)
         self.btn_select.clicked.connect(self._on_select)
         lay.addWidget(self.btn_select)
 
-        # 语言行
-        lang_row = QHBoxLayout()
-        lang_row.setSpacing(6)
-        lbl = QLabel("翻译成：")
+        # 引擎行
+        engine_row = QHBoxLayout()
+        engine_row.setSpacing(6)
+        lbl = QLabel("引擎：")
         lbl.setObjectName("lbl")
-        self.combo_target = QComboBox()
-        for label, code in config.TARGET_LANGUAGES:
-            self.combo_target.addItem(label, code)
-        idx = self.combo_target.findData(config.get_target())
+        self.combo_engine = QComboBox()
+        self.combo_engine.addItem("免费引擎（省钱，简单题）", "free")
+        self.combo_engine.addItem("DeepSeek（付费，更准）", "deepseek")
+        idx = self.combo_engine.findData(config.get_default_provider())
         if idx >= 0:
-            self.combo_target.setCurrentIndex(idx)
-        self.combo_target.currentIndexChanged.connect(
-            lambda: config.set_target(self._current_target()))
-        lang_row.addWidget(lbl)
-        lang_row.addWidget(self.combo_target, 1)
-        lay.addLayout(lang_row)
+            self.combo_engine.setCurrentIndex(idx)
+        self.combo_engine.currentIndexChanged.connect(
+            lambda: config.set_default_provider(self.combo_engine.currentData()))
+        engine_row.addWidget(lbl)
+        engine_row.addWidget(self.combo_engine, 1)
+        lay.addLayout(engine_row)
+
+        # 参考题库
+        self.chk_bank = QCheckBox("参考我的题库（自动用 DeepSeek 深度搜索）")
+        self.chk_bank.setChecked(False)
+        lay.addWidget(self.chk_bank)
 
         # 自动复制
-        self.chk_copy = QCheckBox("翻译结果自动复制到剪贴板")
+        self.chk_copy = QCheckBox("搜题结果自动复制到剪贴板")
         self.chk_copy.setChecked(config.get_auto_copy())
         self.chk_copy.toggled.connect(config.set_auto_copy)
         lay.addWidget(self.chk_copy)
@@ -125,13 +135,13 @@ class TranslatorWidget(QWidget):
     def _build_tray(self):
         self.tray = QSystemTrayIcon(self)
         self.tray.setIcon(self._make_icon())
-        self.tray.setToolTip("悬屏翻译")
+        self.tray.setToolTip("悬屏搜题")
         menu = QMenu()
         act_show = QAction("显示挂件", self)
         act_show.triggered.connect(self._show_widget)
-        act_select = QAction("框选翻译", self)
+        act_select = QAction("框选搜题", self)
         act_select.triggered.connect(self._on_select)
-        act_clear = QAction("清除所有遮罩", self)
+        act_clear = QAction("清除所有结果卡片", self)
         act_clear.triggered.connect(self.manager.clear_all)
         act_quit = QAction("退出", self)
         act_quit.triggered.connect(self._quit)
@@ -156,7 +166,7 @@ class TranslatorWidget(QWidget):
         f.setPointSize(26)
         f.setBold(True)
         p.setFont(f)
-        p.drawText(pm.rect(), Qt.AlignCenter, "译")
+        p.drawText(pm.rect(), Qt.AlignCenter, "题")
         p.end()
         return QIcon(pm)
 
@@ -172,14 +182,12 @@ class TranslatorWidget(QWidget):
     def _on_select(self):
         fs = is_fullscreen_foreground()
         log(f"热键触发: is_fullscreen={fs}")
-        # 全屏游戏 + 设置里选了「截全屏翻译」→ 不弹窗口，结果进剪贴板
         if fs and config.get_game_mode() == "fullscreen":
-            self.manager.translate_fullscreen()
+            self.manager.solve_fullscreen()
             return
         self._was_visible = self.isVisible()
         self.hide()
         if fs:
-            # 游戏内框选：先冻结游戏画面再弹覆盖层（否则游戏被顶回桌面后截到的是桌面）
             self.manager.start_game_selection()
         else:
             self.manager.start_selection()
@@ -189,13 +197,13 @@ class TranslatorWidget(QWidget):
             self.show()
             self.raise_()
 
-    def _on_game_translated(self, text):
+    def _on_game_solved(self, text):
         preview = " ".join(text.split())[:80]
-        self.tray.showMessage("翻译完成（已复制）", preview,
+        self.tray.showMessage("搜题完成（已复制）", preview,
                               QSystemTrayIcon.Information, 4000)
 
-    def _on_game_translate_failed(self, msg):
-        self.tray.showMessage("翻译失败", msg, QSystemTrayIcon.Warning, 3000)
+    def _on_game_solve_failed(self, msg):
+        self.tray.showMessage("搜题失败", msg, QSystemTrayIcon.Warning, 3000)
 
     def _setup_hotkey(self):
         self._hotkey = None

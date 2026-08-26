@@ -1,19 +1,19 @@
-"""悬屏翻译 - 程序入口。"""
+"""悬屏搜题 - 程序入口。"""
 import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont
 
-from translator.widget import TranslatorWidget
+from solver.widget import SolverWidget
 
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("悬屏翻译")
-    app.setApplicationDisplayName("悬屏翻译")
+    app.setApplicationName("悬屏搜题")
+    app.setApplicationDisplayName("悬屏搜题")
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont("Microsoft YaHei UI", 10))
 
-    widget = TranslatorWidget()
+    widget = SolverWidget()
     widget.show()
     sys.exit(app.exec())
 
