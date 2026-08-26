@@ -58,12 +58,12 @@ class SolveWorker(QThread):
     # (题目文本, 答案 markdown, 引擎显示名, 模型名, 耗时秒)
     failed = Signal(str)
 
-    def __init__(self, image: QImage, *, provider: str, deep: bool = False,
+    def __init__(self, image: QImage, *, provider: str, model: str = "",
                  question_override: str = "", use_questionbank: bool = False):
         super().__init__()
         self._image = image
         self._provider = provider          # "free" / "deepseek"
-        self._deep = deep                  # True -> 深度重搜（DEEP_MODEL）
+        self._model = model                # 指定模型（如用户选模型重搜）；空=用当前配置
         self._question_override = question_override
         self._use_questionbank = use_questionbank
 
@@ -92,8 +92,8 @@ class SolveWorker(QThread):
             # 3. 组装引擎参数（读最新配置）
             if self._provider == "deepseek":
                 api_key = config.get_deepseek_key()
-                # 深度重搜用 DEEP_MODEL（官方 V4 系列），不能用已下线的 deepseek-reasoner
-                model = engines.DEEP_MODEL if self._deep else config.get_deepseek_model()
+                # 指定模型优先；未指定用设置里的默认模型
+                model = self._model or config.get_deepseek_model()
                 result = engines.solve(question, provider="deepseek", api_key=api_key,
                                        model=model, context_chunks=context_chunks)
             else:
@@ -178,14 +178,14 @@ class SolverManager(QObject):
         self._start_worker(image, card)
         self.selection_finished.emit()
 
-    def _start_worker(self, image, card, question_override="", deep=False):
+    def _start_worker(self, image, card, question_override="", model=""):
         params = self._params_getter()
         provider = params.get("provider", "free")
-        # 深度重搜固定走 DeepSeek
-        if deep:
+        # 指定模型重搜固定走 DeepSeek
+        if model:
             provider = "deepseek"
         card.set_solving("DeepSeek" if provider == "deepseek" else "免费引擎")
-        worker = SolveWorker(image, provider=provider, deep=deep,
+        worker = SolveWorker(image, provider=provider, model=model,
                              question_override=question_override,
                              use_questionbank=params.get("use_questionbank", False))
         worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
@@ -194,15 +194,14 @@ class SolverManager(QObject):
         self._workers.append(worker)
         worker.start()
 
-    def _on_resolve_requested(self, question, deep):
-        """结果卡片请求重搜：找到对应卡片并重跑。"""
+    def _on_resolve_requested(self, question, model):
+        """结果卡片请求重搜：找到对应卡片并重跑。model 非空=用指定 DeepSeek 模型。"""
         card = self.sender()
         if card is None:
             return
         image = card._image
-        # 修改重搜：直接用新题目文本，跳过 OCR
-        card.set_solving("DeepSeek" if deep else "免费引擎")
-        self._start_worker(image, card, question_override=question, deep=deep)
+        # 修改/加条件重搜：直接用新题目文本，跳过 OCR（provider/状态由 _start_worker 设置）
+        self._start_worker(image, card, question_override=question, model=model)
 
     def _on_done(self, card, question, answer, engine_name, model, elapsed):
         if config.get_auto_copy():
