@@ -203,7 +203,7 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "验证成功",
                                     f"Key 有效！可用模型：{names}\n\n"
                                     f"DeepSeek Key 已保存，搜题时选 DeepSeek 引擎即可使用。")
-        except EngineError as e:
+        except Exception as e:  # noqa: BLE001 - 任何异常都要反馈，不能静默
             QMessageBox.warning(self, "验证失败", str(e))
         finally:
             self.btn_ds_probe.setEnabled(True)

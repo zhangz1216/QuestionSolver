@@ -49,13 +49,34 @@ def _post(url, payload, api_key, timeout=60):
         raise EngineError(f"DeepSeek：网络连接失败（{e.reason}），请检查网络") from e
 
 
+def _validate_key(api_key: str) -> str:
+    """校验 DeepSeek API Key 格式。
+
+    防止非 ASCII 内容（如误粘贴的中文）混入 Authorization 头：
+    http.client 对 str 类型的 header 用 latin-1 编码，含中文会抛
+    UnicodeEncodeError 且 UI 上表现为「按钮没反应」。这里提前拦截，
+    给出用户可读的错误。
+    """
+    key = (api_key or "").strip()
+    if not key:
+        raise EngineError("未填写 DeepSeek API Key，请到 platform.deepseek.com 获取（sk- 开头）")
+    if not key.isascii():
+        raise EngineError(
+            "DeepSeek Key 格式不正确：包含中文或非英文字符。"
+            "请检查是否误粘贴了别的内容，应形如 sk-xxxxxxxx")
+    if not key.startswith("sk-"):
+        raise EngineError(
+            "DeepSeek Key 格式不正确：应以 sk- 开头。"
+            "请到 platform.deepseek.com 复制完整 Key")
+    return key
+
+
 def verify_key(api_key: str, timeout: int = 20) -> list:
     """验证 DeepSeek Key 是否有效（GET /models，不消耗 token）。
 
     返回可用模型 id 列表；无效或网络错误抛 EngineError。
     """
-    if not api_key:
-        raise EngineError("未填写 DeepSeek API Key")
+    api_key = _validate_key(api_key)
     req = urllib.request.Request("https://api.deepseek.com/models", method="GET")
     req.add_header("User-Agent", _UA)
     req.add_header("Authorization", f"Bearer {api_key}")
@@ -88,6 +109,7 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
     """
     if not api_key:
         raise EngineError("未配置 DeepSeek API Key，请到设置里填写")
+    api_key = _validate_key(api_key)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_user_prompt(question, context_chunks)},
