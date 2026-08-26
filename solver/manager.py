@@ -92,7 +92,8 @@ class SolveWorker(QThread):
             # 3. 组装引擎参数（读最新配置）
             if self._provider == "deepseek":
                 api_key = config.get_deepseek_key()
-                model = "deepseek-reasoner" if self._deep else config.get_deepseek_model()
+                # 深度重搜用 DEEP_MODEL（官方 V4 系列），不能用已下线的 deepseek-reasoner
+                model = engines.DEEP_MODEL if self._deep else config.get_deepseek_model()
                 result = engines.solve(question, provider="deepseek", api_key=api_key,
                                        model=model, context_chunks=context_chunks)
             else:
