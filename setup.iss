@@ -1,6 +1,6 @@
 ; 悬屏搜题 安装脚本（Inno Setup）
 #define MyAppName "悬屏搜题"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "QuestionSolver"
 #define MyAppExeName "QuestionSolver.exe"
 
@@ -14,7 +14,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=installer
-OutputBaseFilename=QuestionSolver-Setup-v0.1.0
+OutputBaseFilename=QuestionSolver-Setup-v0.2.0
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
