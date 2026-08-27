@@ -70,13 +70,13 @@ class SolveWorker(QThread):
 
     def run(self):
         try:
-            # 1. OCR（或直接用用户改过的题目）
+            # 1. 识别题目（OCR 为主；空/低置信度时用 DeepSeek 视觉模型兜底）
             question = self._question_override
             if not question:
                 png = _qimage_to_png_bytes(self._image)
-                question = ocr.recognize(png).strip()
+                question = self._recognize(png)
                 if not question:
-                    self.failed.emit("未识别到题目文字，请重试或框选更大范围")
+                    self.failed.emit("未能识别到题目文字，请重试或框选更大范围")
                     return
 
             # 2. 参考题库：检索最相关的资料块（纯本地）
@@ -109,6 +109,40 @@ class SolveWorker(QThread):
             self.done.emit(question, result.text, result.engine_name, result.model, result.elapsed)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
+
+    def _recognize(self, png):
+        """识别题目：本地 OCR 优先（免费快）；空/低置信度时用 DeepSeek 视觉模型兜底。
+
+        返回 (识别文本) 或空字符串。
+        """
+        # --- OCR 优先 ---
+        try:
+            text, avg_score, lines = ocr.recognize_scored(png)
+        except Exception as e:  # noqa: BLE001
+            log(f"OCR 识别异常: {e}")
+            text, avg_score, lines = "", 0.0, 0
+        # OCR 可信：非空 + 平均置信度达标 + 有内容行
+        if text and avg_score >= 0.55 and lines >= 1:
+            return text
+
+        log(f"OCR 不可信(score={avg_score:.2f}, lines={lines})，尝试 DeepSeek 视觉识别兜底")
+        # --- 视觉兜底（DeepSeek vision） ---
+        try:
+            api_key = config.get_deepseek_key()
+        except Exception as e:  # noqa: BLE001
+            log(f"读取 DeepSeek key 失败: {e}")
+            api_key = ""
+        if api_key:
+            try:
+                vis_text = engines.vision_recognize(png, api_key=api_key,
+                                                    model=config.get_deepseek_model())
+                if vis_text:
+                    log(f"视觉识别兜底成功（{len(vis_text)}字）")
+                    return vis_text
+            except Exception as e:  # noqa: BLE001
+                log(f"视觉识别兜底失败: {e}")
+        # 兜底失败：回退 OCR 结果（即使效果一般）
+        return text
 
 
 def _play_alert():

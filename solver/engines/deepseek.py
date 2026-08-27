@@ -4,6 +4,7 @@ OpenAI 兼容接口：POST https://api.deepseek.com/chat/completions
 模型：deepseek-chat（快，日常）/ deepseek-reasoner（深度思考，难题更准）
 """
 import time
+import base64
 import urllib.request
 import urllib.error
 import json
@@ -13,6 +14,19 @@ from .prompt import SYSTEM_PROMPT, build_user_prompt
 BASE_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-v4-flash"
 DEEP_MODEL = "deepseek-v4-pro"
+DEFAULT_VISION_MODEL = "deepseek-v4-flash-vision-exp"
+
+# 视觉识别提示词：把截图里的「题目要求 | 初始代码」按语义分开摘录，供 OCR 兜底
+VISION_RECOGNIZE_PROMPT = (
+    "你是编程题识别助手。识别这张截图里的题目内容，完整、原样地摘录，"
+    "严格按以下两段输出：\n\n"
+    "【题目要求】\n（把题干要求逐句原样抄录，保留原有的分点、编号、代码块）\n\n"
+    "【初始代码】\n（把提供的初始代码原样摘录，保持缩进与结构；若没有则写“无”）\n\n"
+    "注意：\n"
+    "- 截图可能左右两栏（左=题目要求、右=初始代码）或上下排列，请按语义区分，不要混在一起。\n"
+    "- 代码里的符号（@Entry、@Component、大括号、箭头函数、泛型等）要原样保留，不要省略或简化。\n"
+    "- 只输出【题目要求】和【初始代码】两段，不要添加解释、解答或多余内容。"
+)
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -103,6 +117,46 @@ def verify_key(api_key: str, timeout: int = 20) -> list:
         raise EngineError(f"DeepSeek：{code_msg}（{detail}）") from e
     except urllib.error.URLError as e:
         raise EngineError(f"DeepSeek：网络连接失败（{e.reason}），请检查网络") from e
+
+
+def vision_recognize(image_bytes: bytes, api_key: str,
+                     model: str = DEFAULT_VISION_MODEL, timeout: int = 60) -> str:
+    """用 DeepSeek 视觉模型识别题目截图，返回结构化文本（题设/代码分开）。
+
+    用途：OCR 识别不可信（空/低置信度/多栏杂乱）时兜底——让模型直接看图，
+    理解「题目要求 | 初始代码」的左右分栏后按语义摘录，比纯 OCR 更准。
+
+    返回 (识别文本, 耗时秒)。
+    """
+    if not api_key:
+        raise EngineError("未配置 DeepSeek API Key，无法使用视觉识别兜底")
+    api_key = _validate_key(api_key)
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    messages = [
+        {"role": "user", "content": [
+            {"type": "text", "text": VISION_RECOGNIZE_PROMPT},
+            {"type": "image_url",
+             "image_url": {"url": f"data:image/png;base64,{b64}"}},
+        ]},
+    ]
+    payload = {
+        "model": model or DEFAULT_VISION_MODEL,
+        "messages": messages,
+        "stream": False,
+        "temperature": 0.1,
+        "max_tokens": 1200,
+        # 关闭思考：识别是确定性任务，不需要思考过程，直出更快更稳
+        "thinking": {"type": "disabled"},
+    }
+    t0 = time.time()
+    data = _post(BASE_URL, payload, api_key, timeout=timeout)
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as e:
+        raise EngineError(f"DeepSeek：视觉识别返回格式异常（{str(data)[:150]}）") from e
+    if not content:
+        raise EngineError("DeepSeek：视觉识别返回内容为空，请重试")
+    return content.strip()
 
 
 def _extract_delta(obj):
