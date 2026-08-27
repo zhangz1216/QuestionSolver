@@ -43,17 +43,27 @@ def _win_icon(kind: str, color: str) -> QIcon:
 
 # ---------------------------------------------------------------- 加条件重搜
 class EditQuestionDialog(QDialog):
-    """调整题目文本 + 附加搜题要求（如「改用 Python 实现」）。"""
+    """调整题目 / 附加要求后重搜。
 
-    def __init__(self, question: str, parent=None, has_images: bool = False):
+    - 视觉路径（看图直搜后，无文字题目）：主体显示框选截图，不显示 OCR 文字，
+      只让用户填附加要求（如「改用 Python 写」），图 + 条件一起交给视觉模型。
+    - OCR 路径：题目文本可修改；卡片有截图时同时显示截图预览 + 勾选是否带图。
+    """
+
+    def __init__(self, question: str, parent=None, has_images: bool = False,
+                 images: list | None = None):
         super().__init__(parent)
-        self.setWindowTitle("调整题目 / 添加要求后重搜")
-        self.setMinimumSize(540, 400)
+        self._images = images or []
+        self._vision_mode = (not question) and bool(self._images)
+        self.setWindowTitle("看图 + 条件重搜" if self._vision_mode else "调整题目 / 添加要求后重搜")
+        self.setMinimumSize(560, 420)
         self.setStyleSheet("""
             QDialog { background-color: #23262e; }
             QLabel { color: #c3c6cd; font-size: 12px; }
             QPlainTextEdit { background: #1b1e24; color: #eee; border: 1px solid #3a3d46;
                              border-radius: 8px; padding: 8px; font-size: 13px; }
+            QScrollArea#shots { background: #1b1e24; border: 1px solid #3a3d46;
+                                border-radius: 8px; }
             QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
                           border-radius: 6px; padding: 7px 20px; font-size: 13px; }
             QPushButton:hover { background: #3a3d46; }
@@ -68,21 +78,41 @@ class EditQuestionDialog(QDialog):
         # 否则会被卡片压到下面（模态下看不见=卡死）
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
 
-        lay.addWidget(QLabel("① 题目文本（OCR 识别可能有错，可直接修改）："))
-        self._edit = QPlainTextEdit(question)
-        self._edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        lay.addWidget(self._edit, 3)
-
-        lay.addWidget(QLabel("② 附加要求（可选，AI 会按新要求做题。例：老师要求用 Python，不要用 Java）："))
-        self._cond_edit = QPlainTextEdit()
-        self._cond_edit.setPlaceholderText("例：这道题老师要求用 Python 写，请按 Python 给出代码和步骤")
-        self._cond_edit.setFixedHeight(64)
-        lay.addWidget(self._cond_edit)
-
-        # 卡片有截图时：可勾选把截图一起发给视觉模型（图 + 条件共同作答）
-        self._use_images = QCheckBox("同时把截图发给 AI（视觉模型结合截图和上面的条件作答）")
-        self._use_images.setChecked(has_images)
-        lay.addWidget(self._use_images)
+        if self._vision_mode:
+            # ① 截图（视觉路径：以截图为准，不显示 OCR 文字）
+            lay.addWidget(QLabel(
+                f"① 已框选 {len(self._images)} 张截图（将发给视觉模型，以截图内容为准）："))
+            lay.addLayout(self._build_shots_row(), 2)
+            # ② 附加要求
+            lay.addWidget(QLabel("② 附加要求（可选，AI 按新要求结合截图作答。例：改用 Python 写）："))
+            self._cond_edit = QPlainTextEdit()
+            self._cond_edit.setPlaceholderText("例：这道题老师要求用 Python 写，请按 Python 给出代码和步骤")
+            self._cond_edit.setFixedHeight(72)
+            lay.addWidget(self._cond_edit)
+            self._edit = None
+            self._use_images = QCheckBox("把截图发给 AI（视觉模型结合截图和上面的要求作答）")
+            self._use_images.setChecked(True)
+            lay.addWidget(self._use_images)
+        else:
+            # ① 题目文本（OCR 路径，可修改）
+            lay.addWidget(QLabel("① 题目文本（OCR 识别可能有错，可直接修改）："))
+            self._edit = QPlainTextEdit(question)
+            self._edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+            lay.addWidget(self._edit, 2)
+            # 卡片有截图时：预览 + 勾选带图
+            self._use_images = None
+            if self._images:
+                lay.addLayout(self._build_shots_row())
+                self._use_images = QCheckBox(
+                    "同时把截图发给 AI（视觉模型结合截图和题目/要求作答）")
+                self._use_images.setChecked(True)
+                lay.addWidget(self._use_images)
+            # ② 附加要求
+            lay.addWidget(QLabel("② 附加要求（可选，AI 会按新要求做题。例：老师要求用 Python，不要用 Java）："))
+            self._cond_edit = QPlainTextEdit()
+            self._cond_edit.setPlaceholderText("例：这道题老师要求用 Python 写，请按 Python 给出代码和步骤")
+            self._cond_edit.setFixedHeight(64)
+            lay.addWidget(self._cond_edit)
 
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -94,16 +124,132 @@ class EditQuestionDialog(QDialog):
         btns.addWidget(btn_cancel)
         btns.addWidget(btn_go)
         lay.addLayout(btns)
-        self._edit.setFocus()
+        if self._edit is not None:
+            self._edit.setFocus()
+
+    def _build_shots_row(self):
+        """横向滚动截图缩略图行。"""
+        row = QHBoxLayout()
+        scroll = QScrollArea()
+        scroll.setObjectName("shots")
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(120)
+        box = QWidget()
+        bl = QHBoxLayout(box)
+        bl.setContentsMargins(6, 6, 6, 6)
+        bl.setSpacing(8)
+        for idx, img in enumerate(self._images):
+            v = QVBoxLayout()
+            pm = QPixmap.fromImage(img).scaled(
+                150, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pic = QLabel()
+            pic.setPixmap(pm)
+            pic.setAlignment(Qt.AlignCenter)
+            v.addWidget(pic)
+            tag = QLabel(f"第 {idx + 1} 张")
+            tag.setAlignment(Qt.AlignCenter)
+            v.addWidget(tag)
+            bl.addLayout(v)
+        bl.addStretch(1)
+        scroll.setWidget(box)
+        row.addWidget(scroll)
+        return row
 
     def question_text(self) -> str:
+        """视觉路径没有文字题目，返回空串；OCR 路径返回可编辑的题目文本。"""
+        if self._edit is None:
+            return ""
         return self._edit.toPlainText().strip()
 
     def condition_text(self) -> str:
         return self._cond_edit.toPlainText().strip()
 
     def use_images(self) -> bool:
-        return self._use_images.isChecked()
+        return self._use_images is not None and self._use_images.isChecked()
+
+
+class ShotsDialog(QDialog):
+    """框选截图管理：完整图预览 + 单独删除（第一张为初始截图，不可删）。"""
+
+    def __init__(self, card, parent=None):
+        super().__init__(parent)
+        self._card = card
+        self.setWindowTitle("框选截图管理")
+        self.setMinimumSize(560, 420)
+        self.resize(660, 560)
+        self.setStyleSheet("""
+            QDialog { background-color: #23262e; }
+            QLabel { color: #c3c6cd; font-size: 12px; }
+            QLabel#pic { background: #1b1e24; border: 1px solid #3a3d46;
+                         border-radius: 8px; }
+            QScrollArea { background: #1b1e24; border: 1px solid #3a3d46;
+                          border-radius: 8px; }
+            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+                          border-radius: 6px; padding: 6px 16px; font-size: 12px; }
+            QPushButton:hover { background: #3a3d46; }
+            QPushButton#danger { color: #ff6b6b; }
+            QPushButton#danger:hover { background: #3a2026; }
+        """)
+        # 置顶：卡片本身置顶，管理面板必须置顶否则被卡片压住（模态锁死=卡死）
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(8)
+        lay.addWidget(QLabel("完整截图预览（点「删除此张」单独删除；第一张为初始框选，不可删）："))
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._container = QWidget()
+        self._container_lay = QVBoxLayout(self._container)
+        self._container_lay.setContentsMargins(4, 4, 4, 4)
+        self._container_lay.setSpacing(10)
+        self._scroll.setWidget(self._container)
+        lay.addWidget(self._scroll, 1)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btn_close = QPushButton("关闭")
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.clicked.connect(self.accept)
+        btns.addWidget(btn_close)
+        lay.addLayout(btns)
+        self._rebuild()
+
+    def _rebuild(self):
+        """按卡片当前截图列表重建预览（删除后刷新）。"""
+        while self._container_lay.count():
+            item = self._container_lay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        for idx, img in enumerate(self._card._images):
+            item_w = QWidget()
+            il = QHBoxLayout(item_w)
+            il.setContentsMargins(0, 0, 0, 0)
+            pm = QPixmap.fromImage(img).scaled(
+                480, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pic = QLabel()
+            pic.setObjectName("pic")
+            pic.setPixmap(pm)
+            pic.setAlignment(Qt.AlignCenter)
+            il.addWidget(pic, 1)
+            side = QVBoxLayout()
+            side.setSpacing(6)
+            side.addWidget(QLabel(f"第 {idx + 1} 张 / 共 {len(self._card._images)} 张"))
+            if idx > 0:
+                btn_del = QPushButton("删除此张")
+                btn_del.setObjectName("danger")
+                btn_del.setCursor(Qt.PointingHandCursor)
+                btn_del.clicked.connect(lambda _=False, i=idx: self._del(i))
+                side.addWidget(btn_del)
+            else:
+                side.addWidget(QLabel("（初始截图，不可删）"))
+            side.addStretch(1)
+            il.addLayout(side)
+            self._container_lay.addWidget(item_w)
+        self._container_lay.addStretch(1)
+
+    def _del(self, idx: int):
+        self._card.remove_image(idx)
+        self._rebuild()
 
 
 # ---------------------------------------------------------------- 选模型重搜
@@ -389,6 +535,14 @@ class ResultCard(QWidget):
         btn_addimg.clicked.connect(lambda: self.add_image_requested.emit())
         row.addWidget(btn_addimg)
         self._always_buttons.append(btn_addimg)
+
+        btn_shots = QPushButton("管理截图")
+        btn_shots.setObjectName("tool")
+        btn_shots.setCursor(Qt.PointingHandCursor)
+        btn_shots.setToolTip("查看框选截图的完整图片，可单独删除")
+        btn_shots.clicked.connect(self._manage_shots)
+        row.addWidget(btn_shots)
+        self._always_buttons.append(btn_shots)
         return row
 
     def _set_buttons_enabled(self, enabled: bool):
@@ -486,23 +640,26 @@ class ResultCard(QWidget):
     def _ask_condition(self):
         """改题目 / 附加要求（如「改用 Python 写」）后重搜。
 
-        卡片有截图时：可勾选「同时把截图发给 AI」→ 图 + 条件一起交给视觉模型。
+        - 视觉路径（看图直搜后无文字题目）：对话框主体=框选截图，不显示 OCR 文字；
+          用户填附加要求 → 图 + 条件一起交给视觉模型。
+        - OCR 路径：题目文本可改；有图时可勾选带图重搜。
         """
-        dlg = EditQuestionDialog(self._question or "（未识别到题目文字，可直接输入）",
-                                 parent=self, has_images=bool(self._images))
+        dlg = EditQuestionDialog(self._question or "",
+                                 parent=self, has_images=bool(self._images),
+                                 images=list(self._images))
         if dlg.exec() == QDialog.Accepted:
             q = dlg.question_text()
             cond = dlg.condition_text()
             if cond:
                 q = f"{q}\n\n（附加要求：{cond}）" if q else f"（附加要求：{cond}）"
-            if not q:
-                return
             if dlg.use_images() and self._images:
                 # 带图重搜：图 + 用户改写的题目/条件 → 视觉模型
                 from . import engines
                 model = engines.DEFAULT_VISION_MODEL
                 self.vision_solve_requested.emit(list(self._images), model, q)
             else:
+                if not q:
+                    return
                 self._request_resolve(q, "")
 
     def _choose_model(self):
@@ -534,6 +691,34 @@ class ResultCard(QWidget):
         self._exp_status.setText(msg)
         self._meta_label.setText(f"📷 {n} 张截图")
         self._resize_to_fit()
+
+    def remove_image(self, idx: int):
+        """删除第 idx 张截图（第一张是初始框选，不可删；删后刷新卡片显示）。"""
+        if idx <= 0 or idx >= len(self._images):
+            return
+        del self._images[idx]
+        self._refresh_shot()
+        n = len(self._images)
+        self._meta_label.setText(f"📷 {n} 张截图" if n > 1 else "")
+        self._status_label.setText("")
+        self._exp_status.setText("")
+        self._resize_to_fit()
+
+    def _refresh_shot(self):
+        """同步卡片缩略图/大图为当前第一张截图。"""
+        self._image = self._images[0]
+        if not self._image.isNull():
+            pm = QPixmap.fromImage(self._image).scaled(
+                360, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self._shot_label.setPixmap(pm)
+            pm2 = QPixmap.fromImage(self._image).scaled(
+                560, 520, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self._big_shot.setPixmap(pm2)
+
+    def _manage_shots(self):
+        """打开框选截图管理面板：完整图预览 + 单独删除。"""
+        dlg = ShotsDialog(self, parent=self)
+        dlg.exec()
 
     def _vision_search(self):
         """「看图直搜」：把当前全部截图直接发给 DeepSeek 视觉模型解题，跳过 OCR。

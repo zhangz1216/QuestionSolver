@@ -50,9 +50,11 @@ class HistoryDialog(QDialog):
         left_lay.setContentsMargins(0, 0, 0, 0)
         head = QLabel("搜题记录（点击查看详情）")
         left_lay.addWidget(head)
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["题目", "引擎", "时间", ""])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["题目", "类型", "引擎", "时间", ""])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.setColumnWidth(1, 76)
+        self.table.setColumnWidth(2, 200)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -107,10 +109,16 @@ class HistoryDialog(QDialog):
         for row, r in enumerate(self._records):
             q = " ".join(r["question"].split())
             self.table.setItem(row, 0, QTableWidgetItem(q[:60] + ("…" if len(q) > 60 else "")))
-            self.table.setItem(row, 1, QTableWidgetItem(f"{r['engine']}·{r['model']}"))
-            self.table.setItem(row, 2, QTableWidgetItem(
+            kind_item = QTableWidgetItem(
+                "🖼 看图直搜" if r["kind"] == "vision" else "OCR识别")
+            kind_item.setTextAlignment(Qt.AlignCenter)
+            if r["kind"] == "vision":
+                kind_item.setForeground(Qt.darkMagenta)
+            self.table.setItem(row, 1, kind_item)
+            self.table.setItem(row, 2, QTableWidgetItem(f"{r['engine']}·{r['model']}"))
+            self.table.setItem(row, 3, QTableWidgetItem(
                 time.strftime("%m-%d %H:%M", time.localtime(r["created_at"]))))
-            self.table.setItem(row, 3, QTableWidgetItem(""))
+            self.table.setItem(row, 4, QTableWidgetItem(""))
         self._browser.clear()
         self._shot_label.clear()
         self._shot_label.setVisible(False)

@@ -55,8 +55,9 @@ class SolveWorker(QThread):
     """后台搜题线程：OCR -> 组装题目 -> 引擎解答。"""
 
     chunk = Signal(str)  # 流式输出的增量文本（deepseek）
-    done = Signal(str, str, str, str, float)
-    # (题目文本, 答案 markdown, 引擎显示名, 模型名, 耗时秒)
+    done = Signal(str, str, str, str, float, str)
+    # (题目文本, 答案 markdown, 引擎显示名, 模型名, 耗时秒, 记录类型 kind)
+    # kind: 'ocr'=OCR 识别搜题 / 'vision'=看图直搜 / ''=未标记
     failed = Signal(str)
 
     def __init__(self, image: QImage, *, provider: str, model: str = "",
@@ -85,7 +86,7 @@ class SolveWorker(QThread):
                     on_token=self.chunk.emit, prompt_extra=self._prompt_extra)
                 # 看图搜题没有文本题目：question 传空，避免占位符污染「加条件重搜」
                 self.done.emit("", result.text, result.engine_name,
-                               result.model, result.elapsed)
+                               result.model, result.elapsed, "vision")
                 return
 
             # 1b. 常规：识别题目（OCR 为主；空/低置信度时用 DeepSeek 视觉模型兜底）
@@ -124,7 +125,7 @@ class SolveWorker(QThread):
                                        free_provider=config.get_free_provider(),
                                        model=config.get_free_model(),
                                        context_chunks=context_chunks)
-            self.done.emit(question, result.text, result.engine_name, result.model, result.elapsed)
+            self.done.emit(question, result.text, result.engine_name, result.model, result.elapsed, "ocr")
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
 
@@ -257,7 +258,7 @@ class SolverManager(QObject):
                              question_override=question_override,
                              use_questionbank=params.get("use_questionbank", False))
         worker.chunk.connect(lambda d, c=card: c.append_answer(d))
-        worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
+        worker.done.connect(lambda q, a, en, m, el, k, c=card: self._on_done(c, q, a, en, m, el, k))
         worker.failed.connect(lambda msg, c=card: self._on_card_failed(c, msg))
         worker.finished.connect(lambda w=worker: self._drop_worker(w))
         self._workers.append(worker)
@@ -284,7 +285,7 @@ class SolverManager(QObject):
                              vision_direct=True, images=images,
                              prompt_extra=prompt_extra)
         worker.chunk.connect(lambda d, c=card: c.append_answer(d))
-        worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
+        worker.done.connect(lambda q, a, en, m, el, k, c=card: self._on_done(c, q, a, en, m, el, k))
         worker.failed.connect(lambda msg, c=card: self._on_card_failed(c, msg))
         worker.finished.connect(lambda w=worker: self._drop_worker(w))
         self._workers.append(worker)
@@ -302,13 +303,14 @@ class SolverManager(QObject):
         self._selector.show()
         self._selector.activateWindow()
 
-    def _on_done(self, card, question, answer, engine_name, model, elapsed):
+    def _on_done(self, card, question, answer, engine_name, model, elapsed, kind=""):
         if config.get_auto_copy():
             QGuiApplication.clipboard().setText(answer)
         if config.get_save_history():
             try:
                 from . import history
-                history.add_record(question or "（看图搜题）", answer, engine_name, model, card._image)
+                history.add_record(question or "（看图搜题）", answer, engine_name, model,
+                                   card._image, kind=kind)
             except Exception as e:  # noqa: BLE001
                 log(f"历史保存失败: {e}")
         card.set_result(question, answer, engine_name, model)
@@ -340,7 +342,7 @@ class SolverManager(QObject):
         self._workers.append(worker)
         worker.start()
 
-    def _on_game_done(self, question, answer, engine_name, model, elapsed):
+    def _on_game_done(self, question, answer, engine_name, model, elapsed, kind=""):
         QGuiApplication.clipboard().setText(answer)
         log(f"全屏搜题完成({engine_name}/{model}): {answer[:60]}")
         _play_alert()
