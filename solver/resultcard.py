@@ -343,7 +343,8 @@ class ResultCard(QWidget):
         self._drag_offset = None
         self._expanded = False
         self._mode = "normal"      # 按钮显示模式：normal 普通 / vision 看图直搜
-        self._mode_btns = []       # (cond, vision, addimg, shots) 每行按钮（紧凑/展开各一行）
+        self._searched = False     # 是否已搜出结果（vision 未搜=待搜索布局，显示「开始搜索」）
+        self._mode_btns = []       # (cond, addimg, shots, search) 每行按钮（紧凑/展开各一行）
         # 流式输出状态（边生成边显示）
         self._streaming = False
         self._pending = ""
@@ -538,23 +539,50 @@ class ResultCard(QWidget):
         row.addWidget(btn_shots)
         self._always_buttons.append(btn_shots)
 
-        self._mode_btns.append((btn_cond, btn_addimg, btn_shots))
+        btn_search = QPushButton("开始搜索")
+        btn_search.setObjectName("deep")
+        btn_search.setCursor(Qt.PointingHandCursor)
+        btn_search.setToolTip("图片准备完成后，把全部截图发给 DeepSeek 视觉模型搜题")
+        btn_search.clicked.connect(self._on_start_search)
+        row.addWidget(btn_search)
+        self._always_buttons.append(btn_search)
+
+        self._mode_btns.append((btn_cond, btn_addimg, btn_shots, btn_search))
         return row
 
     def set_engine_mode(self, provider: str):
         """引擎决定卡片按钮布局：
-        - 看图直搜引擎（'vision'）：[加条件重搜] [添加截图] [管理截图]
+        - 看图直搜引擎（'vision'）：待搜索=[添加截图][管理截图][开始搜索]；已搜索=[加条件重搜][添加截图][管理截图]
         - 免费/DeepSeek 引擎：只显示 [加条件重搜]
         """
         self._set_mode("vision" if provider == "vision" else "normal")
 
     def _set_mode(self, mode: str):
-        """切换按钮显示模式（两行按钮统一）：normal=仅加条件重搜，vision=加条件/添加截图/管理截图。"""
+        """切换按钮显示模式（两行按钮统一）：
+        normal=仅加条件重搜；vision 待搜索=添加截图/管理截图/开始搜索；vision 已搜索=加条件重搜/添加截图/管理截图。
+        """
         self._mode = mode
-        for cond, addimg, shots in self._mode_btns:
-            addimg.setVisible(mode == "vision")
-            shots.setVisible(mode == "vision")
+        vision = mode == "vision"
+        searched = vision and self._searched
+        for cond, addimg, shots, search in self._mode_btns:
+            cond.setVisible(searched or mode == "normal")
+            addimg.setVisible(vision)
+            shots.setVisible(vision)
+            search.setVisible(vision and not self._searched)
         self._resize_to_fit()
+
+    def set_pending(self):
+        """看图直搜引擎初始框选：只保存截图，等用户点「开始搜索」才搜题。"""
+        self._searched = False
+        self._set_mode(self._mode)
+        msg = "截图已保存，可继续「添加截图」；准备齐全后点「开始搜索」"
+        self._status_label.setText(msg)
+        self._exp_status.setText(msg)
+        self._meta_label.setText("")
+
+    def _on_start_search(self):
+        """「开始搜索」：把当前全部截图发给视觉模型搜题。"""
+        self._emit_vision(list(self._images), "", "")
 
     def _on_add_image_clicked(self):
         """「添加截图」：先隐藏卡片（和主界面框选前隐藏一样，避免截到自己），
@@ -563,7 +591,10 @@ class ResultCard(QWidget):
         self.add_image_requested.emit()
 
     def _emit_vision(self, images, model, extra=""):
-        """统一走视觉路径：切到 vision 模式 + 发「看图直搜」信号。"""
+        """统一走视觉路径：切到 vision 模式 + 发「看图直搜」信号。
+        已有结果时视为重搜（保持已搜索布局）；首次待搜索时由 set_result 切换。"""
+        if self._answer:
+            self._searched = True
         self._set_mode("vision")
         self.vision_solve_requested.emit(images, model, extra)
 
@@ -613,6 +644,8 @@ class ResultCard(QWidget):
         self._browser.setMarkdown(self._preview_text())
         self._browser.show()
         self._exp_browser.setMarkdown(answer)
+        self._searched = True          # 已搜出结果：vision 布局切换为「加条件重搜」版
+        self._set_mode(self._mode)
         self._set_buttons_enabled(True)
         self._resize_to_fit()
 

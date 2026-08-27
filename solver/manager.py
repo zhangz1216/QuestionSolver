@@ -264,9 +264,10 @@ class SolverManager(QObject):
         # 指定模型重搜固定走 DeepSeek
         if model:
             provider = "deepseek"
-        # 看图直搜引擎：初始框选（无文本题目）直接走视觉模型，跳过 OCR
+        # 看图直搜引擎：初始框选只保存截图，不搜题；
+        # 等用户把需要的截图（可多张）准备齐全后点「开始搜索」再发视觉模型
         if not question_override and provider == "vision":
-            self._start_vision_worker(card, [image], "", "")
+            card.set_pending()
             return
         card.set_solving("DeepSeek" if provider == "deepseek" else "免费引擎")
         worker = SolveWorker(image, provider=provider, model=model,
