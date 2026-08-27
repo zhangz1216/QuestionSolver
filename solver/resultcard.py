@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QRect, QRectF, QSize, Signal, QEvent, QTimer
 from PySide6.QtGui import (QPixmap, QImage, QPainter, QPen, QIcon, QColor)
 from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextBrowser, QPlainTextEdit,
-                               QComboBox, QSplitter, QScrollArea)
+                               QComboBox, QSplitter, QScrollArea, QCheckBox)
 
 MIN_W = 260
 MAX_PREVIEW_CHARS = 500  # 小卡片答案摘要字数
@@ -45,7 +45,7 @@ def _win_icon(kind: str, color: str) -> QIcon:
 class EditQuestionDialog(QDialog):
     """调整题目文本 + 附加搜题要求（如「改用 Python 实现」）。"""
 
-    def __init__(self, question: str, parent=None):
+    def __init__(self, question: str, parent=None, has_images: bool = False):
         super().__init__(parent)
         self.setWindowTitle("调整题目 / 添加要求后重搜")
         self.setMinimumSize(540, 400)
@@ -79,6 +79,11 @@ class EditQuestionDialog(QDialog):
         self._cond_edit.setFixedHeight(64)
         lay.addWidget(self._cond_edit)
 
+        # 卡片有截图时：可勾选把截图一起发给视觉模型（图 + 条件共同作答）
+        self._use_images = QCheckBox("同时把截图发给 AI（视觉模型结合截图和上面的条件作答）")
+        self._use_images.setChecked(has_images)
+        lay.addWidget(self._use_images)
+
         btns = QHBoxLayout()
         btns.addStretch(1)
         btn_cancel = QPushButton("取消")
@@ -96,6 +101,9 @@ class EditQuestionDialog(QDialog):
 
     def condition_text(self) -> str:
         return self._cond_edit.toPlainText().strip()
+
+    def use_images(self) -> bool:
+        return self._use_images.isChecked()
 
 
 # ---------------------------------------------------------------- 选模型重搜
@@ -169,8 +177,10 @@ class ResultCard(QWidget):
 
     # 重搜请求信号： (题目文本, 模型名)；模型名为空=按当前默认引擎
     resolve_requested = Signal(str, str)
-    # 看图直搜信号： (QImage, 视觉模型名) —— 把原图直接发给视觉模型解题，跳过 OCR
-    vision_solve_requested = Signal(object, str)
+    # 看图直搜信号： (images列表, 视觉模型名, 附加说明) —— 把截图直接发给视觉模型解题
+    vision_solve_requested = Signal(object, str, str)
+    # 添加框选图信号：无参，manager 用 sender() 定位卡片
+    add_image_requested = Signal()
 
     def __init__(self, rect: QRect, image: QImage):
         super().__init__()
@@ -179,6 +189,7 @@ class ResultCard(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setGeometry(rect)
         self._image = image
+        self._images = [image]  # 多图列表：题目太长可分多张截图，一起发给视觉模型
         self._question = ""
         self._answer = ""
         self._engine_name = ""
@@ -370,6 +381,14 @@ class ResultCard(QWidget):
         btn_vision.clicked.connect(self._vision_search)
         row.addWidget(btn_vision)
         self._always_buttons.append(btn_vision)
+
+        btn_addimg = QPushButton("添加框选图")
+        btn_addimg.setObjectName("tool")
+        btn_addimg.setCursor(Qt.PointingHandCursor)
+        btn_addimg.setToolTip("题目太长一张图装不下时，再框选一张追加进来，多张图一起发给视觉模型")
+        btn_addimg.clicked.connect(lambda: self.add_image_requested.emit())
+        row.addWidget(btn_addimg)
+        self._always_buttons.append(btn_addimg)
         return row
 
     def _set_buttons_enabled(self, enabled: bool):
@@ -413,8 +432,8 @@ class ResultCard(QWidget):
         self._last_flushed = ""
         self._flush_queued = False
         self._meta_label.setText(f"{engine_name} · {model}")
-        self._status_label.setText("题目：")
-        self._exp_status.setText("题目：")
+        self._status_label.setText("题目：" if question else "（看图搜题，无文字题目）")
+        self._exp_status.setText("题目：" if question else "（看图搜题，无文字题目）")
         self._browser.setMarkdown(self._preview_text())
         self._browser.show()
         self._exp_browser.setMarkdown(answer)
@@ -465,15 +484,25 @@ class ResultCard(QWidget):
 
     # ---------- 动作 ----------
     def _ask_condition(self):
-        """改题目 / 附加要求（如「改用 Python 写」）后重搜。"""
+        """改题目 / 附加要求（如「改用 Python 写」）后重搜。
+
+        卡片有截图时：可勾选「同时把截图发给 AI」→ 图 + 条件一起交给视觉模型。
+        """
         dlg = EditQuestionDialog(self._question or "（未识别到题目文字，可直接输入）",
-                                 parent=self)
+                                 parent=self, has_images=bool(self._images))
         if dlg.exec() == QDialog.Accepted:
             q = dlg.question_text()
             cond = dlg.condition_text()
             if cond:
                 q = f"{q}\n\n（附加要求：{cond}）" if q else f"（附加要求：{cond}）"
-            if q:
+            if not q:
+                return
+            if dlg.use_images() and self._images:
+                # 带图重搜：图 + 用户改写的题目/条件 → 视觉模型
+                from . import engines
+                model = engines.DEFAULT_VISION_MODEL
+                self.vision_solve_requested.emit(list(self._images), model, q)
+            else:
                 self._request_resolve(q, "")
 
     def _choose_model(self):
@@ -483,15 +512,31 @@ class ResultCard(QWidget):
                                 parent=self)
         if dlg.exec() == QDialog.Accepted:
             model = dlg.selected_model()
-            if model:
-                self._request_resolve(self._question or "（未识别到题目文字）", model)
+            if not model:
+                return
+            if self._question and self._images:
+                # 有文本题目：用所选模型文本重搜
+                self._request_resolve(self._question, model)
+            else:
+                # 看图搜题（无文本题目）：用所选模型 + 全部截图重搜
+                self.vision_solve_requested.emit(list(self._images), model, "")
 
     def _request_resolve(self, question: str, model: str = ""):
         """向 manager 请求重搜。model 非空时用该 DeepSeek 模型。"""
         self.resolve_requested.emit(question, model)
 
+    def add_image(self, image: QImage):
+        """把新框选的截图追加到卡片（题目太长分多张），一起发给视觉模型。"""
+        self._images.append(image)
+        n = len(self._images)
+        msg = f"已添加 {n} 张截图，点「看图直搜」一起发给视觉模型"
+        self._status_label.setText(msg)
+        self._exp_status.setText(msg)
+        self._meta_label.setText(f"📷 {n} 张截图")
+        self._resize_to_fit()
+
     def _vision_search(self):
-        """「看图直搜」：把原图直接发给 DeepSeek 视觉模型解题，跳过 OCR。
+        """「看图直搜」：把当前全部截图直接发给 DeepSeek 视觉模型解题，跳过 OCR。
 
         看图必须用视觉模型：若当前设置的模型不含 vision，强制用视觉默认模型。
         """
@@ -499,7 +544,7 @@ class ResultCard(QWidget):
         model = config.get_deepseek_model() or ""
         if "vision" not in model and "vis" not in model:
             model = engines.DEFAULT_VISION_MODEL
-        self.vision_solve_requested.emit(self._image, model)
+        self.vision_solve_requested.emit(list(self._images), model, "")
 
     # ---------- 形态切换 ----------
     def _toggle_panel(self):

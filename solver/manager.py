@@ -61,7 +61,8 @@ class SolveWorker(QThread):
 
     def __init__(self, image: QImage, *, provider: str, model: str = "",
                  question_override: str = "", use_questionbank: bool = False,
-                 vision_direct: bool = False):
+                 vision_direct: bool = False, images: list | None = None,
+                 prompt_extra: str = ""):
         super().__init__()
         self._image = image
         self._provider = provider          # "free" / "deepseek"
@@ -69,6 +70,8 @@ class SolveWorker(QThread):
         self._question_override = question_override
         self._use_questionbank = use_questionbank
         self._vision_direct = vision_direct  # 看图直搜：把原图直接发给视觉模型
+        self._images = images or [image]     # 多图列表（添加框选图后多张）
+        self._prompt_extra = prompt_extra    # 视觉搜题的用户附加说明（改题/条件）
 
     def run(self):
         try:
@@ -76,10 +79,12 @@ class SolveWorker(QThread):
             if self._vision_direct:
                 api_key = config.get_deepseek_key()
                 model = self._model or config.get_deepseek_model() or engines.DEFAULT_VISION_MODEL
+                pngs = [_qimage_to_png_bytes(i) for i in self._images]
                 result = engines.solve_vision_stream(
-                    _qimage_to_png_bytes(self._image), api_key=api_key, model=model,
-                    on_token=self.chunk.emit)
-                self.done.emit("（看图直搜）", result.text, result.engine_name,
+                    pngs, api_key=api_key, model=model,
+                    on_token=self.chunk.emit, prompt_extra=self._prompt_extra)
+                # 看图搜题没有文本题目：question 传空，避免占位符污染「加条件重搜」
+                self.done.emit("", result.text, result.engine_name,
                                result.model, result.elapsed)
                 return
 
@@ -185,6 +190,7 @@ class SolverManager(QObject):
         self._workers = []
         self._selector = None
         self._pre_captured = None
+        self._add_image_target = None  # 「添加框选图」的目标卡片（None=普通框选建新卡）
 
     # ---------- 框选 ----------
     def start_selection(self, pre_captured=None):
@@ -209,6 +215,7 @@ class SolverManager(QObject):
 
     def _on_cancel(self):
         self._pre_captured = None
+        self._add_image_target = None
         self._cleanup_selector()
         self.selection_finished.emit()
 
@@ -220,9 +227,18 @@ class SolverManager(QObject):
         else:
             image = capture_region(rect)
 
+        # 加图模式：把这次框选追加到目标卡片（题目太长分多张截图）
+        if self._add_image_target is not None:
+            card = self._add_image_target
+            self._add_image_target = None
+            card.add_image(image)
+            self.selection_finished.emit()
+            return
+
         card = ResultCard(rect, image)
         card.resolve_requested.connect(self._on_resolve_requested)
         card.vision_solve_requested.connect(self._on_vision_requested)
+        card.add_image_requested.connect(self._on_add_image_requested)
         self._cards.append(card)
         card.destroyed.connect(lambda obj=None, c=card: self._on_card_closed(c))
         card.show()
@@ -256,14 +272,17 @@ class SolverManager(QObject):
         # 修改/加条件重搜：直接用新题目文本，跳过 OCR（provider/状态由 _start_worker 设置）
         self._start_worker(image, card, question_override=question, model=model)
 
-    def _on_vision_requested(self, image, model):
-        """卡片请求「看图直搜」：把原图直接发给 DeepSeek 视觉模型解题，跳过 OCR。"""
+    def _on_vision_requested(self, images, model, prompt_extra=""):
+        """卡片请求「看图直搜/看图+条件重搜」：把原图直接发给 DeepSeek 视觉模型。"""
         card = self.sender()
         if card is None:
             return
         model = model or config.get_deepseek_model() or engines.DEFAULT_VISION_MODEL
-        card.set_solving(f"DeepSeek {model} · 看图直搜")
-        worker = SolveWorker(image, provider="deepseek", model=model, vision_direct=True)
+        label = "DeepSeek " + (" · 看图直搜" if not prompt_extra else " · 看图+条件")
+        card.set_solving(f"{model}{label}")
+        worker = SolveWorker(card._image, provider="deepseek", model=model,
+                             vision_direct=True, images=images,
+                             prompt_extra=prompt_extra)
         worker.chunk.connect(lambda d, c=card: c.append_answer(d))
         worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
         worker.failed.connect(lambda msg, c=card: self._on_card_failed(c, msg))
@@ -271,13 +290,25 @@ class SolverManager(QObject):
         self._workers.append(worker)
         worker.start()
 
+    def _on_add_image_requested(self):
+        """卡片请求「添加框选图」：进入框选，把新截图追加到该卡片。"""
+        card = self.sender()
+        if card is None or self._selector is not None:
+            return
+        self._add_image_target = card
+        self._selector = SelectorOverlay(self._pre_captured)
+        self._selector.region_selected.connect(self._on_region)
+        self._selector.cancelled.connect(self._on_cancel)
+        self._selector.show()
+        self._selector.activateWindow()
+
     def _on_done(self, card, question, answer, engine_name, model, elapsed):
         if config.get_auto_copy():
             QGuiApplication.clipboard().setText(answer)
         if config.get_save_history():
             try:
                 from . import history
-                history.add_record(question, answer, engine_name, model, card._image)
+                history.add_record(question or "（看图搜题）", answer, engine_name, model, card._image)
             except Exception as e:  # noqa: BLE001
                 log(f"历史保存失败: {e}")
         card.set_result(question, answer, engine_name, model)

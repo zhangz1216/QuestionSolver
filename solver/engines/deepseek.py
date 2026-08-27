@@ -307,32 +307,42 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
 # 看图直搜：让视觉模型直接理解截图（含左右分栏题设/代码）并解题，
 # 跳过低质量的 OCR 转文字。用户点「看图直搜」时走这里。
 VISION_SOLVE_PROMPT = (
-    "请看这张题目截图，直接解题。截图可能左右两栏（左=题目要求、右=初始代码）"
-    "或上下排列，请先完整读清题设与代码再作答。\n"
+    "请看这张题目的截图（可能有多张，按顺序对应题目的不同部分），直接解题。"
+    "截图可能左右两栏（左=题目要求、右=初始代码）或上下排列，"
+    "请先完整读清所有截图的题设与代码再作答。\n"
     "务必：① 按题目要求完整解答；② 若需要补全/编写代码，在答案里给出完整可运行的"
     "ArkTS 代码并保留正确缩进；③ 用 markdown 把代码块、步骤、知识点讲清楚。"
 )
 
 
-def solve_vision_stream(image_bytes: bytes, api_key: str,
+def solve_vision_stream(images, api_key: str,
                         model: str = DEFAULT_VISION_MODEL, timeout: int = 90,
-                        max_tokens: int = 2000, on_token=None):
-    """把题目截图直接发给 DeepSeek 视觉模型解题（流式），返回 (完整文本, 耗时秒)。
+                        max_tokens: int = 2000, on_token=None,
+                        prompt_extra: str = ""):
+    """把题目截图（一张或多张）直接发给 DeepSeek 视觉模型解题（流式）。
 
-    跳过 OCR 转文字环节：视觉模型能直接理解版面（题目要求 | 初始代码 分栏），
-    用于「看图直搜」。要求 model 是视觉模型（deepseek-v4-flash-vision-exp）。
+    跳过 OCR 转文字环节：视觉模型能直接理解版面（题目要求 | 初始代码 分栏）。
+    用于「看图直搜」和「加条件重搜（带图）」。要求 model 是视觉模型。
+    images 可传单张 bytes 或多张列表；prompt_extra 为用户附加说明（如改题/条件）。
     """
     if not api_key:
         raise EngineError("未配置 DeepSeek API Key，无法看图搜题，请到设置里填写")
     api_key = _validate_key(api_key)
-    b64 = base64.b64encode(image_bytes).decode("ascii")
+    if isinstance(images, (bytes, bytearray)):
+        images = [bytes(images)]
+    if not images:
+        raise EngineError("没有可发送的截图")
+    user_text = VISION_SOLVE_PROMPT
+    if prompt_extra:
+        user_text += f"\n\n用户补充说明：\n{prompt_extra}"
+    content = [{"type": "text", "text": user_text}]
+    for img in images:
+        b64 = base64.b64encode(img).decode("ascii")
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"}})
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": [
-            {"type": "text", "text": VISION_SOLVE_PROMPT},
-            {"type": "image_url",
-             "image_url": {"url": f"data:image/png;base64,{b64}"}},
-        ]},
+        {"role": "user", "content": content},
     ]
     payload = {
         "model": model or DEFAULT_VISION_MODEL,
