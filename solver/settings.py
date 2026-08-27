@@ -1,4 +1,4 @@
-"""设置对话框：双引擎 API Key、模型、默认引擎、历史、提示音等。"""
+﻿"""设置对话框：双引擎 API Key、模型、默认引擎、历史、提示音等。"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QCheckBox, QRadioButton, QPushButton, QGroupBox,
@@ -7,32 +7,34 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from . import config
 from .engines import FREE_PROVIDERS, probe_free_engine, EngineError
 from .engines.deepseek import verify_key as verify_deepseek_key
+from . import theme
 
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("设置")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setMinimumWidth(460)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QLabel#hint { color: #7d828c; font-size: 11px; }
-            QLineEdit, QComboBox { background: #1b1e24; color: #eee;
-                                   border: 1px solid #3a3d46; border-radius: 6px;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QLabel#hint { color: #8a819e; font-size: 11px; }
+            QLineEdit, QComboBox { background: #191624; color: #eee;
+                                   border: 1px solid #3f3a57; border-radius: 6px;
                                    padding: 5px 8px; font-size: 13px; }
             QCheckBox, QRadioButton { color: #e8e8e8; font-size: 13px; spacing: 8px; }
-            QGroupBox { color: #9aa0aa; font-size: 12px; border: 1px solid #3a3d46;
+            QGroupBox { color: #9f97b5; font-size: 12px; border: 1px solid #3f3a57;
                         border-radius: 8px; margin-top: 10px; padding-top: 8px; }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 7px 20px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
-            QPushButton#primary { background: #2f7bff; color: white; border: none; font-weight: bold; }
-            QPushButton#primary:hover { background: #3f8aff; }
-            QPushButton#probe { background: #7a5af8; color: white; border: none; }
-            QPushButton#probe:hover { background: #8a6aff; }
+            QPushButton:hover { background: #3f3a57; }
+            QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none; font-weight: bold; }
+            QPushButton#primary:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
+            QPushButton#probe { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none; }
+            QPushButton#probe:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
         """)
         self._build_ui()
 

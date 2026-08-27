@@ -1,4 +1,4 @@
-"""全屏框选覆盖层：左键拖拽画框选择翻译区域。
+﻿"""全屏框选覆盖层：左键拖拽画框选择翻译区域。
 
 支持两种模式：
 - 普通模式（background=None）：半透明覆盖虚拟桌面，框选时看到的是屏幕实时内容。
@@ -36,7 +36,7 @@ class SelectorOverlay(QWidget):
         if self._background is not None:
             p.drawImage(0, 0, self._background)
         p.fillRect(self.rect(), QColor(0, 0, 0, 55))
-        p.setPen(QColor(255, 255, 255, 220))
+        p.setPen(QColor(167, 139, 250, 230))  # 视界亮紫框选线（呼应取景框）
         f = p.font()
         f.setPointSize(14)
         p.setFont(f)

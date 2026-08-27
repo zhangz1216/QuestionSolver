@@ -1,4 +1,4 @@
-"""题库管理窗口：导入（PDF/Word/TXT/图片）、删除、查看、指定参考。"""
+﻿"""题库管理窗口：导入（PDF/Word/TXT/图片）、删除、查看、指定参考。"""
 import time
 
 from PySide6.QtCore import Qt
@@ -9,29 +9,31 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 
 from . import questionbank as qb
 from . import config
+from . import theme
 
 
 class QuestionBankDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("题库管理")
         self.setMinimumSize(680, 420)
         self.resize(720, 460)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QTableWidget { background: #1b1e24; color: #e8e8e8; border: 1px solid #3a3d46;
-                           border-radius: 8px; gridline-color: #2c2f37; font-size: 12px; }
-            QHeaderView::section { background: #2c2f37; color: #c3c6cd; border: none;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QTableWidget { background: #191624; color: #e8e8e8; border: 1px solid #3f3a57;
+                           border-radius: 8px; gridline-color: #2a2540; font-size: 12px; }
+            QHeaderView::section { background: #2a2540; color: #c9c4dc; border: none;
                                    padding: 6px; font-size: 12px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 7px 16px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
-            QPushButton#primary { background: #2f7bff; color: white; border: none; font-weight: bold; }
-            QPushButton#primary:hover { background: #3f8aff; }
+            QPushButton:hover { background: #3f3a57; }
+            QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none; font-weight: bold; }
+            QPushButton#primary:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
             QPushButton#danger { color: #ff6b6b; }
-            QPushButton#danger:hover { background: #3a2026; }
-            QTextBrowser { background: #1b1e24; color: #e8e8e8; border: 1px solid #3a3d46;
+            QPushButton#danger:hover { background: #3a2230; }
+            QTextBrowser { background: #191624; color: #e8e8e8; border: 1px solid #3f3a57;
                            border-radius: 8px; padding: 8px; font-size: 13px; }
         """)
         self._build_ui()
@@ -110,7 +112,7 @@ class QuestionBankDialog(QDialog):
         else:
             self._ref_label.setText("当前：自动检索全部题库")
         self._ref_label.setStyleSheet(
-            "color: #9ae6a0; font-size: 12px;" if ref_id > 0 else "color: #7d828c; font-size: 12px;")
+            "color: #9ae6a0; font-size: 12px;" if ref_id > 0 else "color: #8a819e; font-size: 12px;")
 
     def _selected_id(self):
         row = self.table.currentRow()
@@ -146,9 +148,10 @@ class QuestionBankDialog(QDialog):
             return
         text = qb.get_bank_text(bank_id)
         dlg = QDialog(self)
+        dlg.setWindowIcon(theme.app_icon())
         dlg.setWindowTitle("资料内容")
         dlg.resize(640, 520)
-        dlg.setStyleSheet("QDialog { background-color: #23262e; }")
+        dlg.setStyleSheet("QDialog { background-color: #1e1b2e; }")
         lay = QVBoxLayout(dlg)
         browser = QTextBrowser()
         browser.setPlainText(text[:8000] + ("\n\n…（内容过长已截断）" if len(text) > 8000 else ""))

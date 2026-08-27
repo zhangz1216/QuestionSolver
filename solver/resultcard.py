@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextBrowser, QPlainTextEdit,
                                QComboBox, QSplitter, QScrollArea, QCheckBox)
 
+from . import theme
+
 MIN_W = 260
 MAX_PREVIEW_CHARS = 500  # 小卡片答案摘要字数
 STREAM_RENDER_MS = 120   # 流式输出渲染节流（毫秒）
@@ -55,20 +57,21 @@ class EditQuestionDialog(QDialog):
         super().__init__(parent)
         self._images = images or []
         self._vision_mode = (not question) and bool(self._images)
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("看图 + 条件重搜" if self._vision_mode else "调整题目 / 添加要求后重搜")
         self.setMinimumSize(560, 420)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QPlainTextEdit { background: #1b1e24; color: #eee; border: 1px solid #3a3d46;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QPlainTextEdit { background: #191624; color: #eee; border: 1px solid #3f3a57;
                              border-radius: 8px; padding: 8px; font-size: 13px; }
-            QScrollArea#shots { background: #1b1e24; border: 1px solid #3a3d46;
+            QScrollArea#shots { background: #191624; border: 1px solid #3f3a57;
                                 border-radius: 8px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 7px 20px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
-            QPushButton#primary { background: #2f7bff; color: white; border: none; font-weight: bold; }
-            QPushButton#primary:hover { background: #3f8aff; }
+            QPushButton:hover { background: #3f3a57; }
+            QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none; font-weight: bold; }
+            QPushButton#primary:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
         """)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
@@ -174,21 +177,22 @@ class ShotsDialog(QDialog):
     def __init__(self, card, parent=None):
         super().__init__(parent)
         self._card = card
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("框选截图管理")
         self.setMinimumSize(560, 420)
         self.resize(660, 560)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QLabel#pic { background: #1b1e24; border: 1px solid #3a3d46;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QLabel#pic { background: #191624; border: 1px solid #3f3a57;
                          border-radius: 8px; }
-            QScrollArea { background: #1b1e24; border: 1px solid #3a3d46;
+            QScrollArea { background: #191624; border: 1px solid #3f3a57;
                           border-radius: 8px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 6px 16px; font-size: 12px; }
-            QPushButton:hover { background: #3a3d46; }
+            QPushButton:hover { background: #3f3a57; }
             QPushButton#danger { color: #ff6b6b; }
-            QPushButton#danger:hover { background: #3a2026; }
+            QPushButton#danger:hover { background: #3a2230; }
         """)
         # 置顶：卡片本身置顶，管理面板必须置顶否则被卡片压住（模态锁死=卡死）
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
@@ -258,20 +262,21 @@ class ModelSelectDialog(QDialog):
 
     def __init__(self, current_model: str = "", parent=None):
         super().__init__(parent)
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("选择模型重新搜题")
         self.setMinimumWidth(440)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QComboBox { background: #1b1e24; color: #eee; border: 1px solid #3a3d46;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QComboBox { background: #191624; color: #eee; border: 1px solid #3f3a57;
                         border-radius: 6px; padding: 6px 10px; font-size: 13px; }
-            QComboBox QAbstractItemView { background: #1b1e24; color: #eee;
-                                          selection-background-color: #2f7bff; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QComboBox QAbstractItemView { background: #191624; color: #eee;
+                                          selection-background-color: #7c3aed; }
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 7px 20px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
-            QPushButton#primary { background: #2f7bff; color: white; border: none; font-weight: bold; }
-            QPushButton#primary:hover { background: #3f8aff; }
+            QPushButton:hover { background: #3f3a57; }
+            QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none; font-weight: bold; }
+            QPushButton#primary:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
         """)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
@@ -295,7 +300,7 @@ class ModelSelectDialog(QDialog):
         tip = QLabel("flash 快且便宜（日常）；pro 更强更准（难题）；"
                      "vision 适合直接看图片（本工具走 OCR 文字，一般用不到）")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #7f8593; font-size: 11px;")
+        tip.setStyleSheet("color: #8a819e; font-size: 11px;")
         lay.addWidget(tip)
 
         btns = QHBoxLayout()
@@ -352,9 +357,9 @@ class ResultCard(QWidget):
         self._flush_queued = False
         # 窗口按钮图标（Windows 风格，normal/hover 两色 × 最大化/还原）
         self._hovered = False
-        self._icon_max = _win_icon("max", "#d8dce2")
+        self._icon_max = _win_icon("max", "#d8d4e6")
         self._icon_max_light = _win_icon("max", "#ffffff")
-        self._icon_restore = _win_icon("restore", "#d8dce2")
+        self._icon_restore = _win_icon("restore", "#d8d4e6")
         self._icon_restore_light = _win_icon("restore", "#ffffff")
         self._build_ui()
         self._install_drag()
@@ -374,23 +379,23 @@ class ResultCard(QWidget):
         self._panel = QWidget(self)
         self._panel.setObjectName("panel")
         self._panel.setStyleSheet("""
-            #panel { background-color: rgba(30, 32, 40, 240);
-                     border: 1px solid rgba(255, 255, 255, 28);
+            #panel { background-color: rgba(26, 23, 40, 242);
+                     border: 1px solid rgba(255, 255, 255, 30);
                      border-radius: 10px; }
-            QLabel#meta { color: #8f93a0; font-size: 11px; }
+            QLabel#meta { color: #8a819e; font-size: 11px; }
             QTextBrowser#preview { background: transparent; border: none; color: #e8e8e8;
                                    font-size: 13px; }
             QLabel#status { color: #c3c6cf; font-size: 12px; }
-            QTextBrowser#full { background: #1b1e24; color: #eee; border: 1px solid #3a3d46;
+            QTextBrowser#full { background: #191624; color: #eee; border: 1px solid #3f3a57;
                                 border-radius: 8px; padding: 10px; font-size: 14px; }
-            QScrollArea#shot_scroll { background: #1b1e24; border: 1px solid #3a3d46;
+            QScrollArea#shot_scroll { background: #191624; border: 1px solid #3f3a57;
                                       border-radius: 8px; }
-            QPushButton#tool { background: #2c2f37; color: #ddd; border: 1px solid #41454f;
+            QPushButton#tool { background: #2a2540; color: #ddd; border: 1px solid #41454f;
                                border-radius: 6px; padding: 4px 10px; font-size: 12px; }
-            QPushButton#tool:hover { background: #3a3d46; }
-            QPushButton#deep { background: #7a5af8; color: white; border: none;
+            QPushButton#tool:hover { background: #3f3a57; }
+            QPushButton#deep { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #101c4a, stop:0.5 #2b3f9e, stop:1 #7c3aed); color: white; border: none;
                                border-radius: 6px; padding: 4px 10px; font-size: 12px; }
-            QPushButton#deep:hover { background: #8a6aff; }
+            QPushButton#deep:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e2b6e, stop:0.5 #3452c8, stop:1 #8b5cf6); }
             QPushButton#close_btn { background: transparent; border: none; color: #c7c9d1;
                                     font-size: 15px; }
             QPushButton#close_btn:hover { color: #ff5b5b; }

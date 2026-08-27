@@ -1,4 +1,4 @@
-"""历史收藏夹窗口：浏览搜题记录、查看详情、删除。"""
+﻿"""历史收藏夹窗口：浏览搜题记录、查看详情、删除。"""
 import time
 
 from PySide6.QtCore import Qt
@@ -9,29 +9,31 @@ from PySide6.QtWidgets import (QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabe
                                QHeaderView, QAbstractItemView, QScrollArea)
 
 from . import history
+from . import theme
 
 
 class HistoryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowIcon(theme.app_icon())
         self.setWindowTitle("历史收藏夹")
         self.setMinimumSize(820, 520)
         self.resize(900, 560)
         self.setStyleSheet("""
-            QDialog { background-color: #23262e; }
-            QLabel { color: #c3c6cd; font-size: 12px; }
-            QTableWidget { background: #1b1e24; color: #e8e8e8; border: 1px solid #3a3d46;
-                           border-radius: 8px; gridline-color: #2c2f37; font-size: 12px; }
-            QHeaderView::section { background: #2c2f37; color: #c3c6cd; border: none;
+            QDialog { background-color: #1e1b2e; }
+            QLabel { color: #c9c4dc; font-size: 12px; }
+            QTableWidget { background: #191624; color: #e8e8e8; border: 1px solid #3f3a57;
+                           border-radius: 8px; gridline-color: #2a2540; font-size: 12px; }
+            QHeaderView::section { background: #2a2540; color: #c9c4dc; border: none;
                                    padding: 6px; font-size: 12px; }
-            QTextBrowser { background: #1b1e24; color: #e8e8e8; border: 1px solid #3a3d46;
+            QTextBrowser { background: #191624; color: #e8e8e8; border: 1px solid #3f3a57;
                            border-radius: 8px; padding: 8px; font-size: 13px; }
-            QPushButton { background: #2c2f37; color: #eee; border: 1px solid #444;
+            QPushButton { background: #2a2540; color: #eee; border: 1px solid #4a4463;
                           border-radius: 6px; padding: 7px 16px; font-size: 13px; }
-            QPushButton:hover { background: #3a3d46; }
+            QPushButton:hover { background: #3f3a57; }
             QPushButton#danger { color: #ff6b6b; }
-            QPushButton#danger:hover { background: #3a2026; }
-            QScrollArea { background: #1b1e24; border: 1px solid #3a3d46; border-radius: 8px; }
+            QPushButton#danger:hover { background: #3a2230; }
+            QScrollArea { background: #191624; border: 1px solid #3f3a57; border-radius: 8px; }
         """)
         self._build_ui()
         self._refresh()
