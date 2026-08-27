@@ -105,8 +105,28 @@ def verify_key(api_key: str, timeout: int = 20) -> list:
         raise EngineError(f"DeepSeek：网络连接失败（{e.reason}），请检查网络") from e
 
 
+def _extract_delta(obj):
+    """从流式 chunk JSON 提取 (content文本, reasoning文本, finish_reason)。
+
+    兼容两种响应形态：
+    - delta.content 为 str（普通模型）
+    - delta.content 为 list（视觉模型：[{type, text}]）
+    - 思考型模型先输出 delta.reasoning_content（思考过程）
+    """
+    try:
+        choice = obj["choices"][0]
+    except (KeyError, IndexError, TypeError):
+        return "", "", None
+    delta = choice.get("delta") or {}
+    c = delta.get("content") or ""
+    if isinstance(c, list):
+        c = "".join(str(x.get("text", "")) for x in c if isinstance(x, dict))
+    r = delta.get("reasoning_content") or ""
+    return c, r, choice.get("finish_reason")
+
+
 def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
-          context_chunks=None, timeout: int = 90, max_tokens: int = 900):
+          context_chunks=None, timeout: int = 90, max_tokens: int = 1800):
     """调用 DeepSeek 解答题目，返回 markdown 文本。
 
     max_tokens 限制输出长度：防止简单题也生成超长答案拖慢速度。
@@ -114,6 +134,10 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
     if not api_key:
         raise EngineError("未配置 DeepSeek API Key，请到设置里填写")
     api_key = _validate_key(api_key)
+    # 思考型模型（pro/reasoner）先输出 reasoning_content 再输出正文，
+    # 预算太小会被思考过程吃光导致正文为空 → 单独给大预算
+    if "pro" in (model or "") or "reasoner" in (model or ""):
+        max_tokens = max(max_tokens, 4000)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_user_prompt(question, context_chunks)},
@@ -124,6 +148,10 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
         "stream": False,
         "temperature": 0.3,
         "max_tokens": max_tokens,
+        # 关闭思考：v4 系列默认先输出 reasoning_content，复杂题思考会吃光
+        # max_tokens 预算导致正文为空（表现为「返回内容为空」）。关闭后正文直出，
+        # 更快更稳；pro 关闭思考后仍是更强的模型。
+        "thinking": {"type": "disabled"},
     }
     t0 = time.time()
     data = _post(BASE_URL, payload, api_key, timeout=timeout)
@@ -136,7 +164,7 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
 
 
 def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
-                 context_chunks=None, timeout: int = 90, max_tokens: int = 900,
+                 context_chunks=None, timeout: int = 90, max_tokens: int = 1800,
                  on_token=None):
     """流式调用 DeepSeek：边接收边回调 on_token(增量文本)，返回 (完整文本, 耗时秒)。
 
@@ -145,6 +173,10 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
     if not api_key:
         raise EngineError("未配置 DeepSeek API Key，请到设置里填写")
     api_key = _validate_key(api_key)
+    # 思考型模型（pro/reasoner）先输出 reasoning_content 再输出正文，
+    # 预算太小会被思考过程吃光导致正文为空 → 单独给大预算
+    if "pro" in (model or "") or "reasoner" in (model or ""):
+        max_tokens = max(max_tokens, 4000)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_user_prompt(question, context_chunks)},
@@ -155,6 +187,10 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
         "stream": True,
         "temperature": 0.3,
         "max_tokens": max_tokens,
+        # 关闭思考：v4 系列默认先输出 reasoning_content，复杂题思考会吃光
+        # max_tokens 预算导致正文为空（表现为「返回内容为空」）。关闭后正文直出，
+        # 更快更稳；pro 关闭思考后仍是更强的模型。
+        "thinking": {"type": "disabled"},
     }
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(BASE_URL, data=body, method="POST")
@@ -168,6 +204,8 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
         raise _http_to_engine_error(e) from e
     parts = []
+    reasoning = []
+    finish_reason = None
     try:
         while True:
             line = resp.readline()
@@ -183,14 +221,15 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
                 obj = json.loads(data)
             except json.JSONDecodeError:
                 continue
-            try:
-                delta = obj["choices"][0]["delta"].get("content") or ""
-            except (KeyError, IndexError, TypeError):
-                delta = ""
-            if delta:
-                parts.append(delta)
+            c, r, fr = _extract_delta(obj)
+            if fr:
+                finish_reason = fr
+            if c:
+                parts.append(c)
                 if on_token:
-                    on_token(delta)
+                    on_token(c)
+            elif r:
+                reasoning.append(r)
     except Exception as e:  # noqa: BLE001
         raise EngineError(f"DeepSeek：流式响应中断（{e}）") from e
     finally:
@@ -200,5 +239,12 @@ def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
             pass
     text = "".join(parts)
     if not text:
+        if reasoning:
+            raise EngineError(
+                "DeepSeek：模型思考过程过长，还没输出正文就结束了。"
+                "建议点「修改模型重搜」改选 flash，或稍后重试")
+        if finish_reason == "length":
+            raise EngineError(
+                "DeepSeek：答案生成被截断（内容超长），请重试或换用 pro 模型")
         raise EngineError("DeepSeek：返回内容为空，请重试")
     return text, time.time() - t0

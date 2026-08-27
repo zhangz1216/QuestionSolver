@@ -194,7 +194,7 @@ class SolverManager(QObject):
                              use_questionbank=params.get("use_questionbank", False))
         worker.chunk.connect(lambda d, c=card: c.append_answer(d))
         worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
-        worker.failed.connect(lambda msg, c=card: c.set_error(msg))
+        worker.failed.connect(lambda msg, c=card: self._on_card_failed(c, msg))
         worker.finished.connect(lambda w=worker: self._drop_worker(w))
         self._workers.append(worker)
         worker.start()
@@ -220,6 +220,11 @@ class SolverManager(QObject):
         card.set_result(question, answer, engine_name, model)
         log(f"搜题完成({engine_name}/{model}, {elapsed:.1f}s): {question[:40]}")
         _play_alert()
+
+    def _on_card_failed(self, card, msg):
+        """卡片搜题失败：记日志（失败无痕=无法排查）+ 卡片显示错误。"""
+        log(f"搜题失败: {msg}")
+        card.set_error(msg)
 
     def _drop_worker(self, worker):
         if worker in self._workers:
