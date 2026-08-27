@@ -39,6 +39,12 @@ class SolverWidget(QWidget):
             "questionbank_name": None,
         }
 
+    def _on_engine_changed(self):
+        """引擎切换：保存配置 + 刷新所有结果卡片的按钮布局（引擎决定布局）。"""
+        provider = self.combo_engine.currentData()
+        config.set_default_provider(provider)
+        self.manager.set_engine(provider)
+
     # ---------- UI ----------
     def _build_ui(self):
         self.setObjectName("root")
@@ -111,11 +117,11 @@ class SolverWidget(QWidget):
         self.combo_engine = QComboBox()
         self.combo_engine.addItem("免费引擎（省钱，简单题）", "free")
         self.combo_engine.addItem("DeepSeek（付费，更准）", "deepseek")
+        self.combo_engine.addItem("DeepSeek 视觉（看图直搜）", "vision")
         idx = self.combo_engine.findData(config.get_default_provider())
         if idx >= 0:
             self.combo_engine.setCurrentIndex(idx)
-        self.combo_engine.currentIndexChanged.connect(
-            lambda: config.set_default_provider(self.combo_engine.currentData()))
+        self.combo_engine.currentIndexChanged.connect(self._on_engine_changed)
         engine_row.addWidget(lbl)
         engine_row.addWidget(self.combo_engine, 1)
         lay.addLayout(engine_row)

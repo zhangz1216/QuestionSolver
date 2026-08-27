@@ -71,7 +71,7 @@ class SolveWorker(QThread):
         self._question_override = question_override
         self._use_questionbank = use_questionbank
         self._vision_direct = vision_direct  # 看图直搜：把原图直接发给视觉模型
-        self._images = images or [image]     # 多图列表（添加框选图后多张）
+        self._images = images or [image]     # 多图列表（添加截图后多张）
         self._prompt_extra = prompt_extra    # 视觉搜题的用户附加说明（改题/条件）
 
     def run(self):
@@ -191,7 +191,7 @@ class SolverManager(QObject):
         self._workers = []
         self._selector = None
         self._pre_captured = None
-        self._add_image_target = None  # 「添加框选图」的目标卡片（None=普通框选建新卡）
+        self._add_image_target = None  # 「添加截图」的目标卡片（None=普通框选建新卡）
 
     # ---------- 框选 ----------
     def start_selection(self, pre_captured=None):
@@ -215,6 +215,9 @@ class SolverManager(QObject):
             self._selector = None
 
     def _on_cancel(self):
+        # 加图模式的卡片先隐藏了，取消时恢复显示
+        if self._add_image_target is not None:
+            self._add_image_target.show()
         self._pre_captured = None
         self._add_image_target = None
         self._cleanup_selector()
@@ -233,6 +236,7 @@ class SolverManager(QObject):
             card = self._add_image_target
             self._add_image_target = None
             card.add_image(image)
+            card.show()  # 「添加截图」时卡片先隐藏（避免截到自己），框选完成恢复
             self.selection_finished.emit()
             return
 
@@ -240,6 +244,8 @@ class SolverManager(QObject):
         card.resolve_requested.connect(self._on_resolve_requested)
         card.vision_solve_requested.connect(self._on_vision_requested)
         card.add_image_requested.connect(self._on_add_image_requested)
+        # 按钮布局由当前引擎决定：看图直搜引擎=视觉卡片，其余=仅加条件重搜
+        card.set_engine_mode(self._params_getter().get("provider", "free"))
         self._cards.append(card)
         card.destroyed.connect(lambda obj=None, c=card: self._on_card_closed(c))
         card.show()
@@ -247,12 +253,21 @@ class SolverManager(QObject):
         self._start_worker(image, card)
         self.selection_finished.emit()
 
+    def set_engine(self, provider: str):
+        """引擎切换（主页下拉/设置）：刷新所有结果卡片的按钮布局。"""
+        for card in list(self._cards):
+            card.set_engine_mode(provider)
+
     def _start_worker(self, image, card, question_override="", model=""):
         params = self._params_getter()
         provider = params.get("provider", "free")
         # 指定模型重搜固定走 DeepSeek
         if model:
             provider = "deepseek"
+        # 看图直搜引擎：初始框选（无文本题目）直接走视觉模型，跳过 OCR
+        if not question_override and provider == "vision":
+            self._start_vision_worker(card, [image], "", "")
+            return
         card.set_solving("DeepSeek" if provider == "deepseek" else "免费引擎")
         worker = SolveWorker(image, provider=provider, model=model,
                              question_override=question_override,
@@ -278,8 +293,12 @@ class SolverManager(QObject):
         card = self.sender()
         if card is None:
             return
+        self._start_vision_worker(card, images, model, prompt_extra)
+
+    def _start_vision_worker(self, card, images, model="", prompt_extra=""):
+        """看图直搜统一入口：原图直接发 DeepSeek 视觉模型（引擎初始框选 / 卡片重搜共用）。"""
         model = model or config.get_deepseek_model() or engines.DEFAULT_VISION_MODEL
-        label = "DeepSeek " + (" · 看图直搜" if not prompt_extra else " · 看图+条件")
+        label = " · 看图直搜" if not prompt_extra else " · 看图+条件"
         card.set_solving(f"{model}{label}")
         worker = SolveWorker(card._image, provider="deepseek", model=model,
                              vision_direct=True, images=images,
@@ -292,9 +311,12 @@ class SolverManager(QObject):
         worker.start()
 
     def _on_add_image_requested(self):
-        """卡片请求「添加框选图」：进入框选，把新截图追加到该卡片。"""
+        """卡片请求「添加截图」：进入框选，把新截图追加到该卡片。"""
         card = self.sender()
-        if card is None or self._selector is not None:
+        if card is None:
+            return
+        if self._selector is not None:
+            card.show()  # 已有框选在进行，无法进入，恢复卡片显示
             return
         self._add_image_target = card
         self._selector = SelectorOverlay(self._pre_captured)

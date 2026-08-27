@@ -1,9 +1,9 @@
-"""搜题结果展示：小卡片 ↔ 完整面板（同一窗口双形态）+ 加条件重搜 + 选模型重搜。
+﻿"""搜题结果展示：小卡片 ↔ 完整面板（同一窗口双形态）+ 加条件重搜 + 选模型重搜。
 
 - 小卡片：置顶悬浮，截图缩略图 + 答案摘要 + 操作按钮，可拖拽
 - 完整面板：同一窗口展开（左右分栏：左大图、右全文），右上角 □/▣ 切换
 - 加条件重搜：OCR 不准或需求变化时，改题目 / 附加要求（如「改用 Python 写」）
-- 修改模型重搜：弹窗选择 DeepSeek 模型后用该模型重新搜题
+- 按钮按模式分层：普通搜题只显示 [加条件重搜][看图直搜]；看图直搜后显示 [加条件重搜][添加截图][管理截图]（模型选择保留在设置里）
 """
 from PySide6.QtCore import Qt, QRect, QRectF, QSize, Signal, QEvent, QTimer
 from PySide6.QtGui import (QPixmap, QImage, QPainter, QPen, QIcon, QColor)
@@ -325,7 +325,7 @@ class ResultCard(QWidget):
     resolve_requested = Signal(str, str)
     # 看图直搜信号： (images列表, 视觉模型名, 附加说明) —— 把截图直接发给视觉模型解题
     vision_solve_requested = Signal(object, str, str)
-    # 添加框选图信号：无参，manager 用 sender() 定位卡片
+    # 添加截图信号：无参，manager 用 sender() 定位卡片
     add_image_requested = Signal()
 
     def __init__(self, rect: QRect, image: QImage):
@@ -342,6 +342,8 @@ class ResultCard(QWidget):
         self._model = ""
         self._drag_offset = None
         self._expanded = False
+        self._mode = "normal"      # 按钮显示模式：normal 普通 / vision 看图直搜
+        self._mode_btns = []       # (cond, vision, addimg, shots) 每行按钮（紧凑/展开各一行）
         # 流式输出状态（边生成边显示）
         self._streaming = False
         self._pending = ""
@@ -497,10 +499,18 @@ class ResultCard(QWidget):
         el.addWidget(splitter, 1)
         lay.addWidget(self._expanded_w, 1)
 
+        self._set_mode("normal")   # 初始：只显示 [加条件重搜]（引擎切换后由 set_engine_mode 决定）
         self._set_buttons_enabled(False)
 
     def _make_btns_row(self):
-        """构建一行操作按钮，登记到统一启用/禁用管理。"""
+        """构建一行操作按钮，按模式（normal/vision）分层显示：
+
+        - normal（免费/DeepSeek 引擎）：只显示 [加条件重搜]
+        - vision（看图直搜引擎 / 视觉搜索后）：显示 [加条件重搜] [添加截图] [管理截图]
+
+        注意：紧凑/展开形态各调用一次本方法（两行按钮），全部登记到
+        _mode_btns 由 _set_mode 统一控制可见性。
+        """
         row = QHBoxLayout()
         row.setSpacing(6)
 
@@ -512,27 +522,11 @@ class ResultCard(QWidget):
         row.addWidget(btn_cond)
         self._always_buttons.append(btn_cond)
 
-        btn_model = QPushButton("修改模型重搜")
-        btn_model.setObjectName("deep")
-        btn_model.setCursor(Qt.PointingHandCursor)
-        btn_model.setToolTip("选择 DeepSeek 模型（flash/pro/vision）后重新搜题")
-        btn_model.clicked.connect(self._choose_model)
-        row.addWidget(btn_model)
-        self._all_buttons.append(btn_model)
-
-        btn_vision = QPushButton("看图直搜")
-        btn_vision.setObjectName("deep")
-        btn_vision.setCursor(Qt.PointingHandCursor)
-        btn_vision.setToolTip("把截图原图直接发给 DeepSeek 视觉模型解题，跳过 OCR（左题设/右代码也能看准）")
-        btn_vision.clicked.connect(self._vision_search)
-        row.addWidget(btn_vision)
-        self._always_buttons.append(btn_vision)
-
-        btn_addimg = QPushButton("添加框选图")
+        btn_addimg = QPushButton("添加截图")
         btn_addimg.setObjectName("tool")
         btn_addimg.setCursor(Qt.PointingHandCursor)
         btn_addimg.setToolTip("题目太长一张图装不下时，再框选一张追加进来，多张图一起发给视觉模型")
-        btn_addimg.clicked.connect(lambda: self.add_image_requested.emit())
+        btn_addimg.clicked.connect(self._on_add_image_clicked)
         row.addWidget(btn_addimg)
         self._always_buttons.append(btn_addimg)
 
@@ -543,7 +537,35 @@ class ResultCard(QWidget):
         btn_shots.clicked.connect(self._manage_shots)
         row.addWidget(btn_shots)
         self._always_buttons.append(btn_shots)
+
+        self._mode_btns.append((btn_cond, btn_addimg, btn_shots))
         return row
+
+    def set_engine_mode(self, provider: str):
+        """引擎决定卡片按钮布局：
+        - 看图直搜引擎（'vision'）：[加条件重搜] [添加截图] [管理截图]
+        - 免费/DeepSeek 引擎：只显示 [加条件重搜]
+        """
+        self._set_mode("vision" if provider == "vision" else "normal")
+
+    def _set_mode(self, mode: str):
+        """切换按钮显示模式（两行按钮统一）：normal=仅加条件重搜，vision=加条件/添加截图/管理截图。"""
+        self._mode = mode
+        for cond, addimg, shots in self._mode_btns:
+            addimg.setVisible(mode == "vision")
+            shots.setVisible(mode == "vision")
+        self._resize_to_fit()
+
+    def _on_add_image_clicked(self):
+        """「添加截图」：先隐藏卡片（和主界面框选前隐藏一样，避免截到自己），
+        再请求框选；框选完成/取消后由 manager 恢复显示。"""
+        self.hide()
+        self.add_image_requested.emit()
+
+    def _emit_vision(self, images, model, extra=""):
+        """统一走视觉路径：切到 vision 模式 + 发「看图直搜」信号。"""
+        self._set_mode("vision")
+        self.vision_solve_requested.emit(images, model, extra)
 
     def _set_buttons_enabled(self, enabled: bool):
         for b in self._all_buttons:
@@ -656,7 +678,7 @@ class ResultCard(QWidget):
                 # 带图重搜：图 + 用户改写的题目/条件 → 视觉模型
                 from . import engines
                 model = engines.DEFAULT_VISION_MODEL
-                self.vision_solve_requested.emit(list(self._images), model, q)
+                self._emit_vision(list(self._images), model, q)
             else:
                 if not q:
                     return
@@ -676,7 +698,7 @@ class ResultCard(QWidget):
                 self._request_resolve(self._question, model)
             else:
                 # 看图搜题（无文本题目）：用所选模型 + 全部截图重搜
-                self.vision_solve_requested.emit(list(self._images), model, "")
+                self._emit_vision(list(self._images), model, "")
 
     def _request_resolve(self, question: str, model: str = ""):
         """向 manager 请求重搜。model 非空时用该 DeepSeek 模型。"""
@@ -719,17 +741,6 @@ class ResultCard(QWidget):
         """打开框选截图管理面板：完整图预览 + 单独删除。"""
         dlg = ShotsDialog(self, parent=self)
         dlg.exec()
-
-    def _vision_search(self):
-        """「看图直搜」：把当前全部截图直接发给 DeepSeek 视觉模型解题，跳过 OCR。
-
-        看图必须用视觉模型：若当前设置的模型不含 vision，强制用视觉默认模型。
-        """
-        from . import engines, config
-        model = config.get_deepseek_model() or ""
-        if "vision" not in model and "vis" not in model:
-            model = engines.DEFAULT_VISION_MODEL
-        self.vision_solve_requested.emit(list(self._images), model, "")
 
     # ---------- 形态切换 ----------
     def _toggle_panel(self):

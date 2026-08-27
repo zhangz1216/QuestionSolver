@@ -51,6 +51,7 @@ class SettingsDialog(QDialog):
         self.combo_default = QComboBox()
         self.combo_default.addItem("免费引擎（省钱，简单题）", "free")
         self.combo_default.addItem("DeepSeek（付费，更准）", "deepseek")
+        self.combo_default.addItem("DeepSeek 视觉（看图直搜）", "vision")
         idx = self.combo_default.findData(config.get_default_provider())
         if idx >= 0:
             self.combo_default.setCurrentIndex(idx)
