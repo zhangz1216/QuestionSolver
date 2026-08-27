@@ -6,7 +6,8 @@
 """
 from dataclasses import dataclass
 
-from .deepseek import solve as _ds_solve, EngineError, DEFAULT_MODEL, DEEP_MODEL
+from .deepseek import solve as _ds_solve, solve_stream as _ds_solve_stream
+from .deepseek import EngineError, DEFAULT_MODEL, DEEP_MODEL
 from .free import solve as _free_solve, probe_free_engine, FREE_PROVIDERS
 
 ENGINE_DISPLAY = {
@@ -39,6 +40,23 @@ def solve(question: str, *, provider: str, api_key: str,
     text, elapsed = _free_solve(question, api_key, provider=free_provider, model=model,
                                 context_chunks=context_chunks, timeout=timeout)
     return SolveResult(text, "free", "免费引擎", model or "自动", elapsed)
+
+
+def solve_stream(question: str, *, provider: str, api_key: str, model: str = "",
+                 on_token=None, free_provider: str = "zhipu",
+                 context_chunks=None, timeout: int = 90) -> SolveResult:
+    """流式解答题目：边生成边回调 on_token(增量)。
+
+    目前仅 deepseek 支持流式；free 引擎回退到非流式一次性返回。
+    """
+    if provider == "deepseek":
+        text, elapsed = _ds_solve_stream(question, api_key, model=model or DEFAULT_MODEL,
+                                         context_chunks=context_chunks, timeout=timeout,
+                                         on_token=on_token)
+        return SolveResult(text, "deepseek", "DeepSeek", model or DEFAULT_MODEL, elapsed)
+    return solve(question, provider=provider, api_key=api_key, model=model,
+                 free_provider=free_provider, context_chunks=context_chunks,
+                 timeout=timeout)
 
 
 __all__ = ["solve", "SolveResult", "EngineError", "probe_free_engine",

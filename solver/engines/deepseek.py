@@ -22,17 +22,9 @@ class EngineError(Exception):
     """带用户可读信息的引擎错误。"""
 
 
-def _post(url, payload, api_key, timeout=60):
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("User-Agent", _UA)
-    req.add_header("Authorization", f"Bearer {api_key}")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        # 把 HTTP 错误码转成用户可读的中文信息
+def _http_to_engine_error(e):
+    """把 urllib 的 HTTPError/URLError 转成用户可读的 EngineError。"""
+    if isinstance(e, urllib.error.HTTPError):
         detail = ""
         try:
             detail = e.read().decode("utf-8", "replace")[:200]
@@ -44,9 +36,21 @@ def _post(url, payload, api_key, timeout=60):
             403: "无权限访问，请检查 Key",
             429: "请求太频繁被限流，稍等几秒再试",
         }.get(e.code, f"服务返回 HTTP {e.code}")
-        raise EngineError(f"DeepSeek：{code_msg}（{detail}）") from e
-    except urllib.error.URLError as e:
-        raise EngineError(f"DeepSeek：网络连接失败（{e.reason}），请检查网络") from e
+        return EngineError(f"DeepSeek：{code_msg}（{detail}）")
+    return EngineError(f"DeepSeek：网络连接失败（{e.reason}），请检查网络")
+
+
+def _post(url, payload, api_key, timeout=60):
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", _UA)
+    req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        raise _http_to_engine_error(e) from e
 
 
 def _validate_key(api_key: str) -> str:
@@ -102,10 +106,10 @@ def verify_key(api_key: str, timeout: int = 20) -> list:
 
 
 def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
-          context_chunks=None, timeout: int = 90):
+          context_chunks=None, timeout: int = 90, max_tokens: int = 900):
     """调用 DeepSeek 解答题目，返回 markdown 文本。
 
-    model 为 "deepseek-reasoner" 时走深度思考（更准但慢）。
+    max_tokens 限制输出长度：防止简单题也生成超长答案拖慢速度。
     """
     if not api_key:
         raise EngineError("未配置 DeepSeek API Key，请到设置里填写")
@@ -119,6 +123,7 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
         "messages": messages,
         "stream": False,
         "temperature": 0.3,
+        "max_tokens": max_tokens,
     }
     t0 = time.time()
     data = _post(BASE_URL, payload, api_key, timeout=timeout)
@@ -128,3 +133,72 @@ def solve(question: str, api_key: str, model: str = DEFAULT_MODEL,
         raise EngineError(f"DeepSeek：返回格式异常（{str(data)[:150]}）") from e
     elapsed = time.time() - t0
     return content, elapsed
+
+
+def solve_stream(question: str, api_key: str, model: str = DEFAULT_MODEL,
+                 context_chunks=None, timeout: int = 90, max_tokens: int = 900,
+                 on_token=None):
+    """流式调用 DeepSeek：边接收边回调 on_token(增量文本)，返回 (完整文本, 耗时秒)。
+
+    体感提速的关键：首字 1 秒内到达，用户不用干等完整答案生成。
+    """
+    if not api_key:
+        raise EngineError("未配置 DeepSeek API Key，请到设置里填写")
+    api_key = _validate_key(api_key)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_user_prompt(question, context_chunks)},
+    ]
+    payload = {
+        "model": model or DEFAULT_MODEL,
+        "messages": messages,
+        "stream": True,
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(BASE_URL, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", _UA)
+    req.add_header("Authorization", f"Bearer {api_key}")
+    req.add_header("Accept", "text/event-stream")
+    t0 = time.time()
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        raise _http_to_engine_error(e) from e
+    parts = []
+    try:
+        while True:
+            line = resp.readline()
+            if not line:
+                break
+            line = line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            try:
+                delta = obj["choices"][0]["delta"].get("content") or ""
+            except (KeyError, IndexError, TypeError):
+                delta = ""
+            if delta:
+                parts.append(delta)
+                if on_token:
+                    on_token(delta)
+    except Exception as e:  # noqa: BLE001
+        raise EngineError(f"DeepSeek：流式响应中断（{e}）") from e
+    finally:
+        try:
+            resp.close()
+        except Exception:  # noqa: BLE001
+            pass
+    text = "".join(parts)
+    if not text:
+        raise EngineError("DeepSeek：返回内容为空，请重试")
+    return text, time.time() - t0

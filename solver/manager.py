@@ -54,6 +54,7 @@ def crop_precaptured(image: QImage, rect: QRect) -> QImage:
 class SolveWorker(QThread):
     """后台搜题线程：OCR -> 组装题目 -> 引擎解答。"""
 
+    chunk = Signal(str)  # 流式输出的增量文本（deepseek）
     done = Signal(str, str, str, str, float)
     # (题目文本, 答案 markdown, 引擎显示名, 模型名, 耗时秒)
     failed = Signal(str)
@@ -94,8 +95,11 @@ class SolveWorker(QThread):
                 api_key = config.get_deepseek_key()
                 # 指定模型优先；未指定用设置里的默认模型
                 model = self._model or config.get_deepseek_model()
-                result = engines.solve(question, provider="deepseek", api_key=api_key,
-                                       model=model, context_chunks=context_chunks)
+                # 流式：边生成边通过 chunk 信号上屏，首字 1 秒内可见
+                result = engines.solve_stream(question, provider="deepseek",
+                                              api_key=api_key, model=model,
+                                              context_chunks=context_chunks,
+                                              on_token=self.chunk.emit)
             else:
                 api_key = config.get_free_key()
                 result = engines.solve(question, provider="free", api_key=api_key,
@@ -188,6 +192,7 @@ class SolverManager(QObject):
         worker = SolveWorker(image, provider=provider, model=model,
                              question_override=question_override,
                              use_questionbank=params.get("use_questionbank", False))
+        worker.chunk.connect(lambda d, c=card: c.append_answer(d))
         worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
         worker.failed.connect(lambda msg, c=card: c.set_error(msg))
         worker.finished.connect(lambda w=worker: self._drop_worker(w))

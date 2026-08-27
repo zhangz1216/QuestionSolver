@@ -5,14 +5,40 @@
 - 加条件重搜：OCR 不准或需求变化时，改题目 / 附加要求（如「改用 Python 写」）
 - 修改模型重搜：弹窗选择 DeepSeek 模型后用该模型重新搜题
 """
-from PySide6.QtCore import Qt, QRect, Signal, QEvent
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtCore import Qt, QRect, QRectF, QSize, Signal, QEvent, QTimer
+from PySide6.QtGui import (QPixmap, QImage, QPainter, QPen, QIcon, QColor)
 from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextBrowser, QPlainTextEdit,
                                QComboBox, QSplitter, QScrollArea)
 
 MIN_W = 260
 MAX_PREVIEW_CHARS = 500  # 小卡片答案摘要字数
+STREAM_RENDER_MS = 120   # 流式输出渲染节流（毫秒）
+
+
+def _win_icon(kind: str, color: str) -> QIcon:
+    """自绘 Windows 风格窗口按钮图标（最大化=单框；还原=两框对角重叠）。
+
+    字体字符做不出一模一样的还原符号，用 QPainter 描边画，和 Windows
+    标题栏最大化/还原按钮的图案一致。
+    """
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color))
+    pen.setWidthF(1.4)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    if kind == "max":
+        # 最大化：单个方框
+        p.drawRect(QRectF(2.0, 2.0, 12.0, 12.0))
+    else:
+        # 还原：两个同尺寸方框，左下框 + 右上框对角重叠（同 Windows 还原图标）
+        p.drawRect(QRectF(2.0, 6.5, 9.5, 9.5))   # 左下框（下层）
+        p.drawRect(QRectF(6.5, 2.0, 9.5, 9.5))   # 右上框（上层）
+    p.end()
+    return QIcon(pm)
 
 
 # ---------------------------------------------------------------- 加条件重搜
@@ -157,8 +183,27 @@ class ResultCard(QWidget):
         self._model = ""
         self._drag_offset = None
         self._expanded = False
+        # 流式输出状态（边生成边显示）
+        self._streaming = False
+        self._pending = ""
+        self._last_flushed = ""
+        self._flush_queued = False
+        # 窗口按钮图标（Windows 风格，normal/hover 两色 × 最大化/还原）
+        self._hovered = False
+        self._icon_max = _win_icon("max", "#d8dce2")
+        self._icon_max_light = _win_icon("max", "#ffffff")
+        self._icon_restore = _win_icon("restore", "#d8dce2")
+        self._icon_restore_light = _win_icon("restore", "#ffffff")
         self._build_ui()
         self._install_drag()
+        self._update_expand_icon()
+
+    def _update_expand_icon(self):
+        """按当前形态 + hover 状态切换右上角按钮图标（Windows 同款）。"""
+        if self._expanded:
+            self.btn_expand.setIcon(self._icon_restore_light if self._hovered else self._icon_restore)
+        else:
+            self.btn_expand.setIcon(self._icon_max_light if self._hovered else self._icon_max)
 
     # ---------- 构建 ----------
     def _build_ui(self):
@@ -198,10 +243,12 @@ class ResultCard(QWidget):
         self._meta_label = QLabel("")
         self._meta_label.setObjectName("meta")
         self._meta_label.setWordWrap(True)
-        self.btn_expand = QPushButton("□")
+        self.btn_expand = QPushButton()
         self.btn_expand.setObjectName("close_btn")
         self.btn_expand.setFixedSize(24, 24)
+        self.btn_expand.setIconSize(QSize(16, 16))
         self.btn_expand.setCursor(Qt.PointingHandCursor)
+        self.btn_expand.setAttribute(Qt.WA_Hover, True)  # 保证 HoverEnter/Leave 事件
         self.btn_expand.setToolTip("展开完整面板")
         self.btn_expand.clicked.connect(self._toggle_panel)
         btn_close = QPushButton("✕")
@@ -335,6 +382,14 @@ class ResultCard(QWidget):
         self._status_label.setText(msg)
         self._exp_status.setText(msg)
         self._meta_label.setText("")
+        # 新一次搜题：重置流式状态，清掉旧内容
+        self._streaming = False
+        self._pending = ""
+        self._last_flushed = ""
+        self._flush_queued = False
+        self._browser.setMarkdown("")
+        self._exp_browser.setMarkdown("")
+        self._browser.hide()
         self._resize_to_fit()
 
     def set_result(self, question: str, answer: str, engine_name: str, model: str):
@@ -342,6 +397,11 @@ class ResultCard(QWidget):
         self._answer = answer
         self._engine_name = engine_name
         self._model = model
+        # 停止流式渲染
+        self._streaming = False
+        self._pending = ""
+        self._last_flushed = ""
+        self._flush_queued = False
         self._meta_label.setText(f"{engine_name} · {model}")
         self._status_label.setText("题目：")
         self._exp_status.setText("题目：")
@@ -350,6 +410,34 @@ class ResultCard(QWidget):
         self._exp_browser.setMarkdown(answer)
         self._set_buttons_enabled(True)
         self._resize_to_fit()
+
+    # ---------- 流式输出（边生成边显示，体感提速） ----------
+    def append_answer(self, delta: str):
+        """AI 流式输出的增量文本；节流合并渲染，避免每个 token 全量重绘。"""
+        if not delta:
+            return
+        if not self._streaming:
+            self._streaming = True
+            self._pending = ""
+            self._last_flushed = ""
+            self._status_label.setText("AI 生成中…")
+            self._exp_status.setText("AI 生成中…")
+        self._pending += delta
+        if not self._flush_queued:
+            self._flush_queued = True
+            QTimer.singleShot(STREAM_RENDER_MS, self._flush_stream)
+
+    def _flush_stream(self):
+        """节流渲染：把累积的流式文本刷到两个浏览器。"""
+        self._flush_queued = False
+        if not self._streaming or self._pending == self._last_flushed:
+            return
+        self._last_flushed = self._pending
+        self._browser.setMarkdown(self._pending)
+        self._exp_browser.setMarkdown(self._pending)
+        for b in (self._browser, self._exp_browser):
+            sb = b.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def set_error(self, msg: str):
         self._meta_label.setText("")
@@ -399,7 +487,6 @@ class ResultCard(QWidget):
         if self._expanded:
             self._compact.hide()
             self._expanded_w.show()
-            self.btn_expand.setText("▣")
             self.btn_expand.setToolTip("收起为小卡片")
             if self._image and not self._image.isNull():
                 pm = QPixmap.fromImage(self._image).scaled(
@@ -412,11 +499,11 @@ class ResultCard(QWidget):
         else:
             self._expanded_w.hide()
             self._compact.show()
-            self.btn_expand.setText("□")
             self.btn_expand.setToolTip("展开完整面板")
             if self._answer:
                 self._browser.setMarkdown(self._preview_text())
             self._resize_to_fit()
+        self._update_expand_icon()
 
     def _clamp_to_screen(self):
         """展开后若超出屏幕工作区，夹回可见范围。"""
@@ -430,11 +517,20 @@ class ResultCard(QWidget):
     # ---------- 拖拽 ----------
     def _install_drag(self):
         for w in (self, self._panel, self._meta_label, self._shot_label,
-                  self._status_label, self._big_shot, self._exp_status):
+                  self._status_label, self._big_shot, self._exp_status,
+                  self.btn_expand):
             w.installEventFilter(self)
 
     def eventFilter(self, obj, event):
         t = event.type()
+        if t == QEvent.HoverEnter:
+            self._hovered = True
+            self._update_expand_icon()
+            return False
+        if t == QEvent.HoverLeave:
+            self._hovered = False
+            self._update_expand_icon()
+            return False
         if t == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             return False
