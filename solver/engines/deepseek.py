@@ -325,13 +325,13 @@ def solve_vision_stream(images, api_key: str,
     用于「看图直搜」和「加条件重搜（带图）」。要求 model 是视觉模型。
     images 可传单张 bytes 或多张列表；prompt_extra 为用户附加说明（如改题/条件）。
     """
-    if not api_key:
-        raise EngineError("未配置 DeepSeek API Key，无法看图搜题，请到设置里填写")
-    api_key = _validate_key(api_key)
     if isinstance(images, (bytes, bytearray)):
         images = [bytes(images)]
     if not images:
         raise EngineError("没有可发送的截图")
+    if not api_key:
+        raise EngineError("未配置 DeepSeek API Key，无法看图搜题，请到设置里填写")
+    api_key = _validate_key(api_key)
     user_text = VISION_SOLVE_PROMPT
     if prompt_extra:
         user_text += f"\n\n用户补充说明：\n{prompt_extra}"
