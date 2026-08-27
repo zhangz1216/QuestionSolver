@@ -60,17 +60,30 @@ class SolveWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, image: QImage, *, provider: str, model: str = "",
-                 question_override: str = "", use_questionbank: bool = False):
+                 question_override: str = "", use_questionbank: bool = False,
+                 vision_direct: bool = False):
         super().__init__()
         self._image = image
         self._provider = provider          # "free" / "deepseek"
         self._model = model                # 指定模型（如用户选模型重搜）；空=用当前配置
         self._question_override = question_override
         self._use_questionbank = use_questionbank
+        self._vision_direct = vision_direct  # 看图直搜：把原图直接发给视觉模型
 
     def run(self):
         try:
-            # 1. 识别题目（OCR 为主；空/低置信度时用 DeepSeek 视觉模型兜底）
+            # 1a. 看图直搜：跳过 OCR，把原图直接发给 DeepSeek 视觉模型
+            if self._vision_direct:
+                api_key = config.get_deepseek_key()
+                model = self._model or config.get_deepseek_model() or engines.DEFAULT_VISION_MODEL
+                result = engines.solve_vision_stream(
+                    _qimage_to_png_bytes(self._image), api_key=api_key, model=model,
+                    on_token=self.chunk.emit)
+                self.done.emit("（看图直搜）", result.text, result.engine_name,
+                               result.model, result.elapsed)
+                return
+
+            # 1b. 常规：识别题目（OCR 为主；空/低置信度时用 DeepSeek 视觉模型兜底）
             question = self._question_override
             if not question:
                 png = _qimage_to_png_bytes(self._image)
@@ -209,6 +222,7 @@ class SolverManager(QObject):
 
         card = ResultCard(rect, image)
         card.resolve_requested.connect(self._on_resolve_requested)
+        card.vision_solve_requested.connect(self._on_vision_requested)
         self._cards.append(card)
         card.destroyed.connect(lambda obj=None, c=card: self._on_card_closed(c))
         card.show()
@@ -241,6 +255,21 @@ class SolverManager(QObject):
         image = card._image
         # 修改/加条件重搜：直接用新题目文本，跳过 OCR（provider/状态由 _start_worker 设置）
         self._start_worker(image, card, question_override=question, model=model)
+
+    def _on_vision_requested(self, image, model):
+        """卡片请求「看图直搜」：把原图直接发给 DeepSeek 视觉模型解题，跳过 OCR。"""
+        card = self.sender()
+        if card is None:
+            return
+        model = model or config.get_deepseek_model() or engines.DEFAULT_VISION_MODEL
+        card.set_solving(f"DeepSeek {model} · 看图直搜")
+        worker = SolveWorker(image, provider="deepseek", model=model, vision_direct=True)
+        worker.chunk.connect(lambda d, c=card: c.append_answer(d))
+        worker.done.connect(lambda q, a, en, m, el, c=card: self._on_done(c, q, a, en, m, el))
+        worker.failed.connect(lambda msg, c=card: self._on_card_failed(c, msg))
+        worker.finished.connect(lambda w=worker: self._drop_worker(w))
+        self._workers.append(worker)
+        worker.start()
 
     def _on_done(self, card, question, answer, engine_name, model, elapsed):
         if config.get_auto_copy():

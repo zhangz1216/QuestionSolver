@@ -169,6 +169,8 @@ class ResultCard(QWidget):
 
     # 重搜请求信号： (题目文本, 模型名)；模型名为空=按当前默认引擎
     resolve_requested = Signal(str, str)
+    # 看图直搜信号： (QImage, 视觉模型名) —— 把原图直接发给视觉模型解题，跳过 OCR
+    vision_solve_requested = Signal(object, str)
 
     def __init__(self, rect: QRect, image: QImage):
         super().__init__()
@@ -360,6 +362,14 @@ class ResultCard(QWidget):
         btn_model.clicked.connect(self._choose_model)
         row.addWidget(btn_model)
         self._all_buttons.append(btn_model)
+
+        btn_vision = QPushButton("看图直搜")
+        btn_vision.setObjectName("deep")
+        btn_vision.setCursor(Qt.PointingHandCursor)
+        btn_vision.setToolTip("把截图原图直接发给 DeepSeek 视觉模型解题，跳过 OCR（左题设/右代码也能看准）")
+        btn_vision.clicked.connect(self._vision_search)
+        row.addWidget(btn_vision)
+        self._always_buttons.append(btn_vision)
         return row
 
     def _set_buttons_enabled(self, enabled: bool):
@@ -479,6 +489,17 @@ class ResultCard(QWidget):
     def _request_resolve(self, question: str, model: str = ""):
         """向 manager 请求重搜。model 非空时用该 DeepSeek 模型。"""
         self.resolve_requested.emit(question, model)
+
+    def _vision_search(self):
+        """「看图直搜」：把原图直接发给 DeepSeek 视觉模型解题，跳过 OCR。
+
+        看图必须用视觉模型：若当前设置的模型不含 vision，强制用视觉默认模型。
+        """
+        from . import engines, config
+        model = config.get_deepseek_model() or ""
+        if "vision" not in model and "vis" not in model:
+            model = engines.DEFAULT_VISION_MODEL
+        self.vision_solve_requested.emit(self._image, model)
 
     # ---------- 形态切换 ----------
     def _toggle_panel(self):

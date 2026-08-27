@@ -7,6 +7,7 @@
 from dataclasses import dataclass
 
 from .deepseek import solve as _ds_solve, solve_stream as _ds_solve_stream
+from .deepseek import solve_vision_stream as _ds_solve_vision_stream
 from .deepseek import vision_recognize as _ds_vision_recognize
 from .deepseek import EngineError, DEFAULT_MODEL, DEEP_MODEL, DEFAULT_VISION_MODEL
 from .free import solve as _free_solve, probe_free_engine, FREE_PROVIDERS
@@ -67,6 +68,18 @@ def vision_recognize(image_bytes: bytes, *, api_key: str, model: str = "",
                                 model=model or DEFAULT_VISION_MODEL, timeout=timeout)
 
 
+def solve_vision_stream(image_bytes: bytes, *, api_key: str, model: str = "",
+                        on_token=None, timeout: int = 90) -> SolveResult:
+    """把题目截图直接发给 DeepSeek 视觉模型解题（流式），返回 SolveResult。
+
+    跳过 OCR 转文字，视觉模型直接理解版面（题目要求|初始代码 分栏）。
+    """
+    text, elapsed = _ds_solve_vision_stream(
+        image_bytes, api_key, model=model or DEFAULT_VISION_MODEL,
+        on_token=on_token, timeout=timeout)
+    return SolveResult(text, "deepseek", "DeepSeek", model or DEFAULT_VISION_MODEL, elapsed)
+
+
 __all__ = ["solve", "SolveResult", "EngineError", "probe_free_engine",
            "FREE_PROVIDERS", "DEFAULT_MODEL", "DEEP_MODEL", "DEFAULT_VISION_MODEL",
-           "vision_recognize", "ENGINE_DISPLAY"]
+           "vision_recognize", "solve_vision_stream", "ENGINE_DISPLAY"]
