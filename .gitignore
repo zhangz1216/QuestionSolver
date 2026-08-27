@@ -10,6 +10,8 @@ venv/
 build/
 dist/
 installer/
+release/
+build*.log
 
 # IDE / 编辑器
 .idea/
