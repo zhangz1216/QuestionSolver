@@ -1,5 +1,5 @@
-; 悬屏搜题 安装脚本（Inno Setup）
-#define MyAppName "悬屏搜题"
+﻿; 视界 AI 搜题 安装脚本（Inno Setup）
+#define MyAppName "视界 AI 搜题"
 #define MyAppVersion "0.2.0"
 #define MyAppPublisher "QuestionSolver"
 #define MyAppExeName "QuestionSolver.exe"

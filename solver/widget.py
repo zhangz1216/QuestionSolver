@@ -2,7 +2,7 @@
 import math
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import (QPixmap, QPainter, QColor, QFont, QIcon, QAction,
-                           QPen, QGuiApplication)
+                           QPen, QGuiApplication, QLinearGradient, QPainterPath)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QLabel, QComboBox, QCheckBox, QMenu,
                                QSystemTrayIcon, QApplication)
@@ -80,7 +80,7 @@ class SolverWidget(QWidget):
 
         # 标题行
         top = QHBoxLayout()
-        title = QLabel("悬屏搜题")
+        title = QLabel("视界 AI 搜题")
         title.setObjectName("title")
         bank_btn = self._icon_button(self._book_icon, "题库管理（导入资料供 AI 学习）")
         bank_btn.clicked.connect(self._open_question_bank)
@@ -145,7 +145,7 @@ class SolverWidget(QWidget):
     def _build_tray(self):
         self.tray = QSystemTrayIcon(self)
         self.tray.setIcon(self._make_icon())
-        self.tray.setToolTip("悬屏搜题")
+        self.tray.setToolTip("视界 AI 搜题")
         menu = QMenu()
         act_show = QAction("显示挂件", self)
         act_show.triggered.connect(self._show_widget)
@@ -217,19 +217,57 @@ class SolverWidget(QWidget):
             p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
     def _make_icon(self) -> QIcon:
+        """「视界 AI 搜题」托盘图标：深蓝→紫渐变圆角方块 + 四角取景框 + 中央「视界之眼」+ 四向星芒。
+
+        与 exe 图标（icon.ico）同一设计语言：随手框选（取景框）、AI 一眼看穿（慧眼）。
+        """
         pm = QPixmap(64, 64)
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setBrush(QColor("#2f7bff"))
+        # 圆角渐变背景
+        grad = QLinearGradient(0, 0, 64, 64)
+        grad.setColorAt(0.0, QColor("#101c4a"))
+        grad.setColorAt(0.55, QColor("#2b3f9e"))
+        grad.setColorAt(1.0, QColor("#7c3aed"))
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, 64, 64), 14, 14)
+        p.fillPath(path, grad)
+        # 四角取景框（白，圆头）
+        pen = QPen(QColor(255, 255, 255, 235))
+        pen.setWidthF(3.2)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        m, L = 8, 14  # 边距、括号臂长
+        p.drawLine(QPointF(m, m + L), QPointF(m, m))
+        p.drawLine(QPointF(m, m), QPointF(m + L, m))
+        p.drawLine(QPointF(64 - m, m + L), QPointF(64 - m, m))
+        p.drawLine(QPointF(64 - m, m), QPointF(64 - m - L, m))
+        p.drawLine(QPointF(m, 64 - m - L), QPointF(m, 64 - m))
+        p.drawLine(QPointF(m, 64 - m), QPointF(m + L, 64 - m))
+        p.drawLine(QPointF(64 - m, 64 - m - L), QPointF(64 - m, 64 - m))
+        p.drawLine(QPointF(64 - m, 64 - m), QPointF(64 - m - L, 64 - m))
+        # 中央「视界之眼」
+        cx, cy = 32.0, 30.0
+        for r, a in [(24, 26), (20, 36), (16.5, 50), (13.5, 70)]:
+            p.setBrush(QColor(160, 180, 255, a))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), r, r)
+        p.setBrush(QColor(255, 255, 255, 245))   # 虹膜
         p.setPen(Qt.NoPen)
-        p.drawRoundedRect(4, 4, 56, 56, 14, 14)
-        p.setPen(QColor("white"))
-        f = QFont()
-        f.setPointSize(26)
-        f.setBold(True)
-        p.setFont(f)
-        p.drawText(pm.rect(), Qt.AlignCenter, "题")
+        p.drawEllipse(QPointF(cx, cy), 9.8, 9.8)
+        p.setBrush(QColor(13, 27, 77, 255))      # 瞳孔
+        p.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
+        p.setBrush(QColor(255, 255, 255, 235))   # 右上高光
+        p.drawEllipse(QPointF(cx + 2.3, cy - 4.2), 2.0, 2.0)
+        p.setBrush(QColor(255, 255, 255, 255))
+        p.drawEllipse(QPointF(cx + 3.0, cy - 3.4), 0.8, 0.8)
+        # 四向星芒
+        p.setPen(QPen(QColor(255, 255, 255, 170), 1.6, Qt.SolidLine, Qt.RoundCap))
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            p.drawLine(QPointF(cx + dx * 17, cy + dy * 17),
+                       QPointF(cx + dx * 23, cy + dy * 23))
         p.end()
         return QIcon(pm)
 
